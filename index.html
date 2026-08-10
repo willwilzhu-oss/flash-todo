@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="闪念待办">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<title>闪念待办台</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --primary:#2563eb;
+  --primary-light:#dbeafe;
+  --primary-dark:#1d4ed8;
+  --danger:#ef4444;
+  --danger-light:#fef2f2;
+  --success:#10b981;
+  --success-light:#ecfdf5;
+  --warning:#f59e0b;
+  --warning-light:#fffbeb;
+  --gray-50:#f9fafb;
+  --gray-100:#f3f4f6;
+  --gray-200:#e5e7eb;
+  --gray-300:#d1d5db;
+  --gray-400:#9ca3af;
+  --gray-500:#6b7280;
+  --gray-600:#4b5563;
+  --gray-700:#374151;
+  --gray-800:#1f2937;
+  --radius:12px;
+  --shadow:0 1px 3px rgba(0,0,0,0.1),0 1px 2px rgba(0,0,0,0.06);
+  --shadow-lg:0 4px 12px rgba(0,0,0,0.1);
+}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  background:var(--gray-50);color:var(--gray-800);line-height:1.6;
+  padding-bottom:env(safe-area-inset-bottom);min-height:100vh;
+}
+.container{max-width:680px;margin:0 auto;padding:16px}
+h1{font-size:24px;font-weight:700;color:var(--gray-800)}
+h2{font-size:18px;font-weight:600;color:var(--gray-700);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding:0 4px}
+.header-actions{display:flex;gap:8px}
+.btn{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:8px 14px;border-radius:8px;border:1px solid var(--gray-200);
+  background:#fff;color:var(--gray-600);font-size:13px;cursor:pointer;
+  transition:all .15s ease;min-height:44px;min-width:44px;justify-content:center;
+}
+.btn:hover{border-color:var(--primary);color:var(--primary)}
+.btn-primary{background:var(--primary);color:#fff;border-color:var(--primary)}
+.btn-primary:hover{background:var(--primary-dark)}
+.btn-danger{color:var(--danger);border-color:var(--danger)}
+.btn-sm{padding:6px 10px;font-size:12px;min-height:36px;min-width:36px}
+
+/* 同步状态 */
+.sync-indicator{
+  display:inline-flex;align-items:center;gap:4px;
+  font-size:11px;color:var(--gray-400);padding:4px 8px;border-radius:6px;
+  background:var(--gray-50);cursor:pointer;
+}
+.sync-indicator.syncing{color:var(--primary);background:var(--primary-light)}
+.sync-indicator.synced{color:var(--success);background:var(--success-light)}
+.sync-indicator.error{color:var(--danger);background:var(--danger-light)}
+.sync-dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.sync-indicator.syncing .sync-dot{animation:blink 1s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* 闪念速记区 */
+.flash-input-card{
+  background:#fff;border-radius:var(--radius);padding:20px;
+  box-shadow:var(--shadow-lg);margin-bottom:20px;
+  border:2px solid var(--primary-light);
+}
+.flash-input-card h2{margin-bottom:8px}
+.flash-input-row{display:flex;gap:10px;align-items:center}
+.flash-input{
+  flex:1;padding:14px 16px;border:1.5px solid var(--gray-200);
+  border-radius:10px;font-size:16px;outline:none;transition:border-color .2s;
+}
+.flash-input:focus{border-color:var(--primary)}
+.flash-input::placeholder{color:var(--gray-400)}
+.voice-btn{
+  width:48px;height:48px;border-radius:50%;border:none;
+  background:var(--primary-light);color:var(--primary);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .2s ease;flex-shrink:0;
+}
+.voice-btn:hover{background:var(--primary);color:#fff}
+.voice-btn.recording{background:var(--danger);color:#fff;animation:pulse 1s infinite}
+.voice-btn svg{width:22px;height:22px}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
+.flash-hint{font-size:12px;color:var(--gray-400);margin-top:8px}
+.inbox-badge{
+  display:inline-flex;align-items:center;gap:4px;
+  background:var(--warning-light);color:var(--warning);
+  padding:4px 10px;border-radius:20px;font-size:12px;font-weight:500;margin-top:10px;
+}
+
+/* 今日聚焦 */
+.section{background:#fff;border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);margin-bottom:16px}
+.today-item{
+  display:flex;align-items:center;gap:12px;padding:12px 14px;
+  border-radius:10px;margin-bottom:8px;transition:background .15s;
+}
+.today-item:hover{background:var(--gray-50)}
+.today-item.overdue{background:var(--danger-light);border-left:3px solid var(--danger)}
+.today-item.today-due{background:var(--primary-light);border-left:3px solid var(--primary)}
+.today-item.soon{background:var(--warning-light);border-left:3px solid var(--warning)}
+.item-check{
+  width:24px;height:24px;border-radius:50%;border:2px solid var(--gray-300);
+  cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  transition:all .2s;
+}
+.item-check:hover{border-color:var(--primary);background:var(--primary-light)}
+.item-check.done{background:var(--success);border-color:var(--success)}
+.item-check.done svg{display:block}
+.item-check svg{display:none;width:14px;height:14px;color:#fff}
+.item-content{flex:1;min-width:0}
+.item-title{font-size:15px;color:var(--gray-800)}
+.item-meta{font-size:12px;color:var(--gray-400);margin-top:2px;display:flex;gap:8px;flex-wrap:wrap}
+.priority-tag{font-size:11px;padding:2px 6px;border-radius:4px;font-weight:600}
+.priority-p0{background:#fef2f2;color:#dc2626}
+.priority-p1{background:#fffbeb;color:#d97706}
+.priority-p2{background:#f0fdf4;color:#16a34a}
+.overdue-tag{font-size:11px;color:var(--danger);font-weight:500}
+.item-actions{display:flex;gap:6px;flex-shrink:0}
+.item-action-btn{
+  width:32px;height:32px;border-radius:6px;border:none;background:transparent;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--gray-400);
+}
+.item-action-btn:hover{background:var(--gray-100);color:var(--gray-600)}
+
+/* Tab */
+.tab-bar{display:flex;gap:4px;margin-bottom:16px;background:var(--gray-100);padding:4px;border-radius:10px}
+.tab-item{
+  flex:1;padding:10px 12px;border-radius:8px;border:none;
+  background:transparent;color:var(--gray-500);font-size:14px;
+  cursor:pointer;transition:all .2s;text-align:center;font-weight:500;
+}
+.tab-item.active{background:#fff;color:var(--primary);box-shadow:var(--shadow)}
+.tab-count{font-size:11px;margin-left:4px;opacity:.7}
+
+/* 待办列表 */
+.todo-item{
+  display:flex;align-items:center;gap:12px;padding:14px;
+  border-radius:10px;margin-bottom:8px;background:var(--gray-50);transition:all .2s;
+}
+.todo-item:hover{background:var(--gray-100)}
+.todo-item.completed .item-title{text-decoration:line-through;color:var(--gray-400)}
+.empty-state{text-align:center;padding:40px 20px;color:var(--gray-400)}
+.empty-state svg{width:48px;height:48px;margin-bottom:12px;opacity:.5}
+
+/* 弹窗 */
+.modal-overlay{
+  position:fixed;top:0;left:0;right:0;bottom:0;
+  background:rgba(0,0,0,.4);z-index:1000;display:none;
+  align-items:center;justify-content:center;padding:20px;
+}
+.modal-overlay.show{display:flex}
+.modal{
+  background:#fff;border-radius:16px;padding:24px;width:100%;max-width:420px;
+  box-shadow:0 20px 40px rgba(0,0,0,.15);max-height:90vh;overflow-y:auto;
+}
+.modal h3{font-size:18px;margin-bottom:16px;color:var(--gray-800)}
+.form-group{margin-bottom:14px}
+.form-label{display:block;font-size:13px;color:var(--gray-500);margin-bottom:6px}
+.form-input{
+  width:100%;padding:12px 14px;border:1.5px solid var(--gray-200);
+  border-radius:8px;font-size:16px;outline:none;transition:border-color .2s;
+}
+.form-input:focus{border-color:var(--primary)}
+.form-select{
+  width:100%;padding:12px 14px;border:1.5px solid var(--gray-200);
+  border-radius:8px;font-size:16px;outline:none;background:#fff;
+  -webkit-appearance:none;appearance:none;
+}
+.modal-actions{display:flex;gap:10px;margin-top:18px}
+.modal-actions .btn{flex:1}
+.form-hint{font-size:12px;color:var(--gray-400);margin-top:4px}
+.settings-section{border-top:1px solid var(--gray-100);padding-top:14px;margin-top:14px}
+.settings-section h4{font-size:14px;color:var(--gray-600);margin-bottom:10px;font-weight:600}
+
+.toast{
+  position:fixed;top:20px;left:50%;transform:translateX(-50%);
+  background:var(--gray-800);color:#fff;padding:12px 20px;
+  border-radius:10px;font-size:14px;z-index:2000;
+  opacity:0;transition:opacity .3s;pointer-events:none;max-width:90vw;text-align:center;
+}
+.toast.show{opacity:1}
+.backup-tip{
+  background:var(--primary-light);color:var(--primary-dark);
+  padding:10px 16px;border-radius:8px;font-size:13px;
+  margin-bottom:16px;display:none;align-items:center;gap:8px;
+}
+.backup-tip.show{display:flex}
+
+@media(max-width:768px){
+  .container{padding:12px}
+  .header h1{font-size:20px}
+  .header-actions .btn .btn-text{display:none}
+  .today-item{padding:10px 12px}
+  .item-actions{opacity:1}
+}
+@media(min-width:769px){
+  .item-actions{opacity:0;transition:opacity .2s}
+  .today-item:hover .item-actions,.todo-item:hover .item-actions{opacity:1}
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div>
+      <h1>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" style="display:inline;vertical-align:-4px"><polygon points="132 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        闪念待办台
+      </h1>
+      <div class="sync-indicator" id="syncIndicator" onclick="openSettings()" style="margin-top:4px">
+        <span class="sync-dot"></span>
+        <span id="syncText">未配置同步</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-sm" onclick="openSettings()" title="同步设置">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      </button>
+      <button class="btn btn-sm" onclick="exportData()" title="导出备份">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span class="btn-text">导出</span>
+      </button>
+      <button class="btn btn-sm" onclick="document.getElementById('importFile').click()" title="导入恢复">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <span class="btn-text">导入</span>
+      </button>
+      <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
+    </div>
+  </div>
+
+  <div class="backup-tip" id="backupTip">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    数据已积累较多，建议导出备份以防丢失
+    <button class="btn btn-sm" onclick="exportData()" style="margin-left:auto">立即备份</button>
+  </div>
+
+  <!--闪念速记 -->
+  <div class="flash-input-card">
+    <h2>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      闪念速记
+    </h2>
+    <div class="flash-input-row">
+      <input type="text" class="flash-input" id="flashInput" placeholder="想到什么就记什么，回车保存..." autocomplete="off">
+      <button class="voice-btn" id="voiceBtn" onclick="toggleVoice()" title="语音输入">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+      </button>
+    </div>
+    <div class="flash-hint">按Enter快速保存 · 点麦克风语音输入 · 稍后可整理优先级和日期</div>
+    <div class="inbox-badge" id="inboxBadge" style="display:none">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/></svg>
+      <span id="inboxCount">0</span> 条待整理
+    </div>
+  </div>
+
+  <!-- 今日聚焦 -->
+  <div class="section">
+    <h2>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      今天要处理
+    </h2>
+    <div id="todayList"></div>
+  </div>
+
+  <!-- 待办整理 -->
+  <div class="section">
+    <h2>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      待办整理
+    </h2>
+    <div class="tab-bar">
+      <button class="tab-item active" data-tab="inbox" onclick="switchTab('inbox')">收集箱<span class="tab-count" id="tabInboxCount"></span></button>
+      <button class="tab-item" data-tab="active" onclick="switchTab('active')">进行中<span class="tab-count" id="tabActiveCount"></span></button>
+      <button class="tab-item" data-tab="done" onclick="switchTab('done')">已完成<span class="tab-count" id="tabDoneCount"></span></button>
+    </div>
+    <div id="todoListContainer"></div>
+  </div>
+
+  <div style="text-align:center;padding:20px 0;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+    <button class="btn btn-sm btn-danger" onclick="clearSampleData()">清空示例数据</button>
+    <button class="btn btn-sm" onclick="clearAllData()">清空所有数据</button>
+  </div>
+</div>
+
+<!-- 编辑弹窗 -->
+<div class="modal-overlay" id="editModal">
+  <div class="modal">
+    <h3 id="modalTitle">编辑待办</h3>
+    <div class="form-group">
+      <label class="form-label">内容</label>
+      <input type="text" class="form-input" id="editTitle" placeholder="待办内容" style="font-size:16px">
+    </div>
+    <div class="form-group">
+      <label class="form-label">截止日期</label>
+      <input type="date" class="form-input" id="editDate" style="font-size:16px">
+    </div>
+    <div class="form-group">
+      <label class="form-label">优先级</label>
+      <select class="form-select" id="editPriority" style="font-size:16px">
+        <option value="">不设优先级</option>
+        <option value="P0">P0 紧急重要</option>
+        <option value="P1">P1 重要</option>
+        <option value="P2">P2 一般</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveEdit()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 设置弹窗 -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal">
+    <h3>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" style="display:inline;vertical-align:-3px"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      坚果云同步设置
+    </h3>
+    <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px">通过坚果云WebDAV实现多设备数据自动同步。数据通过CORS代理中转，安全加密传输。</p>
+
+    <div class="form-group">
+      <label class="form-label">坚果云账号（邮箱）</label>
+      <input type="email" class="form-input" id="davUser" placeholder="your@email.com" style="font-size:16px">
+    </div>
+    <div class="form-group">
+      <label class="form-label">应用密码</label>
+      <input type="password" class="form-input" id="davPass" placeholder="WebDAV应用密码" style="font-size:16px">
+      <div class="form-hint">坚果云 → 账户信息 → 安全选项 → 第三方应用管理 → 添加应用</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">存储路径</label>
+      <input type="text" class="form-input" id="davPath" value="/flash-todo/data.json" style="font-size:16px">
+      <div class="form-hint">坚果云中的文件路径，默认即可</div>
+    </div>
+
+    <div class="modal-actions" style="flex-wrap:wrap;gap:8px">
+      <button class="btn" onclick="closeSettings()">取消</button>
+      <button class="btn" onclick="testSync()" id="testSyncBtn">测试连接</button>
+      <button class="btn btn-primary" onclick="saveSettings()">保存并同步</button>
+    </div>
+
+    <div class="settings-section">
+      <h4>手动同步</h4>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="pullFromCloud()" style="flex:1">从云端拉取</button>
+        <button class="btn btn-sm" onclick="pushToCloud()" style="flex:1">推送到云端</button>
+      </div>
+      <div class="form-hint" style="margin-top:8px">自动同步：每次增删改后自动推送，打开页面时自动拉取</div>
+    </div>
+
+    <div class="settings-section">
+      <button class="btn btn-sm btn-danger" onclick="clearSyncConfig()">断开同步</button>
+      <div class="form-hint" style="margin-top:4px">仅清除本设备的同步凭据，不影响云端数据</div>
+    </div>
+  </div>
+</div>
+
+<!-- 确认弹窗 -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal">
+    <h3 id="confirmTitle">确认操作</h3>
+    <p id="confirmMsg" style="color:var(--gray-500);margin-bottom:18px"></p>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeConfirm()">取消</button>
+      <button class="btn btn-primary" id="confirmOk">确认</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+//===== 常量 =====
+const STORAGE_KEY = 'wb_flashtodo_items';
+const SYNC_CONFIG_KEY = 'wb_flashtodo_sync';
+//坚果云 WebDAV 基础地址
+const DAV_HOST = 'https://dav.jianguoyun.com/dav';
+// 公开CORS 代理列表（依次尝试，解决浏览器跨域限制）
+const CORS_PROXIES = [
+  'https://corsproxy.io/?',
+  'https://api.allorigins.win/raw?url=',
+  '' // 最后尝试直连（某些环境可能支持）
+];
+
+//===== 全局状态 =====
+let todos = [];
+let currentTab = 'inbox';
+let editingId = null;
+let syncConfig = null;
+let isSyncing = false;
+let workingProxy = null; // 缓存可用的代理
+
+//===== 数据管理 =====
+function loadData(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw) todos = JSON.parse(raw);
+    else initSampleData();
+  }catch(e){initSampleData();}
+}
+
+function saveData(skipSync){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
+  checkBackupTip();
+  if(!skipSync) debouncedPush();
+}
+
+function genId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
+function getToday(){return new Date().toISOString().split('T')[0]}
+
+function initSampleData(){
+  const today = getToday();
+  const yesterday = new Date(Date.now()-86400000).toISOString().split('T')[0];
+  const tomorrow = new Date(Date.now()+86400000).toISOString().split('T')[0];
+  const in3days = new Date(Date.now()+3*86400000).toISOString().split('T')[0];
+  todos = [
+    {id:genId(),title:'给张经理回复合同确认邮件',dueDate:yesterday,priority:'P0',status:'active',createdAt:yesterday,isSample:true},
+    {id:genId(),title:'整理本周的周报数据',dueDate:today,priority:'P1',status:'active',createdAt:yesterday,isSample:true},
+    {id:genId(),title:'预约下周三的体检',dueDate:tomorrow,priority:'P2',status:'active',createdAt:today,isSample:true},
+    {id:genId(),title:'看看新出的AI编程工具',dueDate:'',priority:'',status:'inbox',createdAt:today,isSample:true},
+    {id:genId(),title:'周末买菜清单：西红柿、鸡蛋、牛肉',dueDate:in3days,priority:'',status:'inbox',createdAt:today,isSample:true},
+  ];
+  saveData(true);
+}
+
+//===== WebDAV 同步（通过CORS 代理）=====
+function loadSyncConfig(){
+  try{
+    const raw = localStorage.getItem(SYNC_CONFIG_KEY);
+    if(raw) syncConfig = JSON.parse(raw);
+  }catch(e){syncConfig=null;}
+  updateSyncUI();
+}
+
+function saveSyncConfig(){
+  localStorage.setItem(SYNC_CONFIG_KEY, JSON.stringify(syncConfig));
+  updateSyncUI();
+}
+
+function updateSyncUI(){
+  const indicator = document.getElementById('syncIndicator');
+  const text = document.getElementById('syncText');
+  if(!syncConfig || !syncConfig.user){
+    indicator.className = 'sync-indicator';
+    text.textContent = '点击配置同步';
+  } else if(isSyncing){
+    indicator.className = 'sync-indicator syncing';
+    text.textContent = '同步中...';
+  } else if(syncConfig.lastError){
+    indicator.className = 'sync-indicator error';
+    text.textContent = syncConfig.lastError;
+  } else if(syncConfig.lastSync){
+    indicator.className = 'sync-indicator synced';
+    const t = new Date(syncConfig.lastSync);
+    text.textContent = '已同步 ' + t.getHours().toString().padStart(2,'0')+':'+t.getMinutes().toString().padStart(2,'0');
+  } else {
+    indicator.className = 'sync-indicator synced';
+    text.textContent = '已配置，等待首次同步';
+  }
+}
+
+function davAuth(){
+  if(!syncConfig) return '';
+  return'Basic ' + btoa(syncConfig.user + ':' + syncConfig.pass);
+}
+
+// 通过代理发请求，自动尝试多个代理
+async function davFetch(method, path, body){
+  const targetUrl = DAV_HOST + path;
+  const headers = {'Authorization': davAuth()};
+  if(body) headers['Content-Type'] = 'application/json';
+
+  // 如果有缓存的可用代理，优先使用
+  if(workingProxy !== null){
+    try{
+      const res = await doFetch(workingProxy, targetUrl, method, headers, body);
+      if(res) return res;
+    }catch(e){}
+    workingProxy = null; // 失败了，重新尝试所有
+  }
+
+  // 依次尝试代理
+  for(const proxy of CORS_PROXIES){
+    try{
+      const res = await doFetch(proxy, targetUrl, method, headers, body);
+      if(res){
+        workingProxy = proxy;
+        return res;
+      }
+    }catch(e){
+      continue;
+    }
+  }
+  throw new Error('all_proxies_failed');
+}
+
+async function doFetch(proxy, targetUrl, method, headers, body){
+  let url, opts;
+  if(proxy === ''){
+    // 直连
+    url = targetUrl;
+    opts = {method, headers, body, mode:'cors'};
+  } else if(proxy.includes('allorigins')){
+    // allorigins 只支持 GET，PUT需要用其他代理
+    if(method !== 'GET') return null;
+    url = proxy + encodeURIComponent(targetUrl);
+    opts = {method:'GET', headers:{'Authorization': headers['Authorization']}};
+  } else {
+    // corsproxy.io 风格：直接拼接 URL
+    url = proxy + encodeURIComponent(targetUrl);
+    opts = {method, headers, body};
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(()=>controller.abort(), 10000);
+  opts.signal = controller.signal;
+
+  try{
+    const res = await fetch(url, opts);
+    clearTimeout(timeout);
+    return res;
+  }catch(e){
+    clearTimeout(timeout);
+    if(e.name === 'AbortError') throw new Error('timeout');
+    throw e;
+  }
+}
+
+async function pushToCloud(){
+  if(!syncConfig || !syncConfig.user) return;
+  isSyncing = true; updateSyncUI();
+  try{
+    const payload = JSON.stringify({version:1, updatedAt:new Date().toISOString(), items:todos});
+    // 先尝试创建目录（忽略错误）
+    const dir = syncConfig.path.substring(0, syncConfig.path.lastIndexOf('/'));
+    if(dir){
+      try{await davFetch('MKCOL', dir + '/');}catch(e){}
+    }
+    const res = await davFetch('PUT', syncConfig.path, payload);
+    if(res && (res.ok || res.status===201|| res.status===204 || res.status===200)){
+      syncConfig.lastSync = new Date().toISOString();
+      syncConfig.lastError = null;
+      saveSyncConfig();
+    } else if(res && res.status === 401){
+      syncConfig.lastError = '认证失败';
+      saveSyncConfig();
+      showToast('同步失败：账号或密码错误');
+    } else {
+      syncConfig.lastError = '推送失败';
+      saveSyncConfig();
+    }
+  }catch(e){
+    if(e.message === 'all_proxies_failed'){
+      syncConfig.lastError = '网络不通';
+      saveSyncConfig();
+      showToast('同步失败：无法连接坚果云，请检查网络');
+    }
+  }
+  isSyncing = false; updateSyncUI();
+}
+
+async function pullFromCloud(){
+  if(!syncConfig || !syncConfig.user){showToast('请先配置同步');return;}
+  isSyncing = true; updateSyncUI();
+  try{
+    const res = await davFetch('GET', syncConfig.path, null);
+    if(res && res.ok){
+      const text = await res.text();
+      try{
+        const data = JSON.parse(text);
+        if(data.items && Array.isArray(data.items)){
+          // 智能合并：基于 ID 去重，保留最新修改
+          const merged = mergeTodos(todos, data.items);
+          todos = merged;
+          saveData(true);
+          render();
+          syncConfig.lastSync = new Date().toISOString();
+          syncConfig.lastError = null;
+          saveSyncConfig();
+          showToast('已同步');
+        }
+      }catch(pe){
+        showToast('云端数据格式异常');
+      }
+    } else if(res && res.status === 404){
+      showToast('云端暂无数据，正在上传...');
+      syncConfig.lastError = null;
+      saveSyncConfig();
+      await pushToCloud();
+    } else if(res && res.status === 401){
+      syncConfig.lastError = '认证失败';
+      saveSyncConfig();
+      showToast('认证失败，请检查账号密码');
+    } else {
+      syncConfig.lastError = '拉取失败';
+      saveSyncConfig();
+    }
+  }catch(e){
+    if(e.message === 'all_proxies_failed'){
+      syncConfig.lastError = '网络不通';
+      saveSyncConfig();
+      showToast('无法连接坚果云，请检查网络');
+    }
+  }
+  isSyncing = false; updateSyncUI();
+}
+
+// 智能合并：以 ID 为key，保留两端数据不丢失
+function mergeTodos(local, remote){
+  const map = new Map();
+  // 先放远端
+  remote.forEach(item=>map.set(item.id, item));
+  // 再放本地（本地优先覆盖，因为是最新操作）
+  local.forEach(item=>map.set(item.id, item));
+  return Array.from(map.values());
+}
+
+let pushTimer = null;
+function debouncedPush(){
+  if(!syncConfig || !syncConfig.user) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(()=>pushToCloud(), 2000);
+}
+
+async function testSync(){
+  const user = document.getElementById('davUser').value.trim();
+  const pass = document.getElementById('davPass').value.trim();
+  if(!user || !pass){showToast('请填写账号和密码');return;}
+  const btn = document.getElementById('testSyncBtn');
+  btn.textContent = '测试中...'; btn.disabled = true;
+
+  // 临时设置 config用于测试
+  const oldConfig = syncConfig;
+  syncConfig = {user, pass, path: document.getElementById('davPath').value.trim() || '/flash-todo/data.json'};
+  workingProxy = null;
+
+  try{
+    const res = await davFetch('GET', '/', null);
+    if(res && (res.ok || res.status === 207|| res.status === 404|| res.status === 301)){
+      showToast('连接成功！');
+      btn.textContent = '连接成功';
+      btn.style.borderColor = 'var(--success)';
+      btn.style.color = 'var(--success)';
+    } else if(res && res.status === 401){
+      showToast('认证失败，请检查账号和应用密码');
+      btn.textContent = '认证失败';
+      btn.style.borderColor = 'var(--danger)';
+      btn.style.color = 'var(--danger)';
+      syncConfig = oldConfig;
+    } else {
+      showToast('连接异常 (' + (res?res.status:'无响应') + ')');
+      btn.textContent = '连接异常';
+      syncConfig = oldConfig;
+    }
+  }catch(e){
+    showToast('所有通道均失败，请确认网络可访问外网');
+    btn.textContent = '网络不通';
+    btn.style.borderColor = 'var(--danger)';
+    btn.style.color = 'var(--danger)';
+    syncConfig = oldConfig;
+  }
+  btn.disabled = false;
+  setTimeout(()=>{btn.textContent='测试连接';btn.style.borderColor='';btn.style.color='';}, 3000);
+}
+
+//===== 设置面板 =====
+function openSettings(){
+  document.getElementById('davUser').value = syncConfig?.user || '';
+  document.getElementById('davPass').value = syncConfig?.pass || '';
+  document.getElementById('davPath').value = syncConfig?.path || '/flash-todo/data.json';
+  document.getElementById('settingsModal').classList.add('show');
+}
+function closeSettings(){document.getElementById('settingsModal').classList.remove('show');}
+
+function saveSettings(){
+  const user = document.getElementById('davUser').value.trim();
+  const pass = document.getElementById('davPass').value.trim();
+  const path = document.getElementById('davPath').value.trim() || '/flash-todo/data.json';
+  if(!user || !pass){showToast('请填写账号和密码');return;}
+  syncConfig = {user, pass, path, lastSync:syncConfig?.lastSync||null, lastError:null};
+  workingProxy = null;
+  saveSyncConfig();
+  closeSettings();
+  showToast('配置已保存，开始同步...');
+  pullFromCloud();
+}
+
+function clearSyncConfig(){
+  showConfirm('断开同步','确定要清除同步配置吗？云端数据不受影响。',()=>{
+    syncConfig = null;
+    workingProxy = null;
+    localStorage.removeItem(SYNC_CONFIG_KEY);
+    updateSyncUI();
+    closeSettings();
+    showToast('已断开同步');
+  });
+}
+
+//===== 核心操作 =====
+function addTodo(title){
+  if(!title.trim()) return;
+  todos.unshift({id:genId(),title:title.trim(),dueDate:'',priority:'',status:'inbox',createdAt:getToday(),isSample:false});
+  saveData();render();showToast('已记录');
+}
+
+function toggleDone(id){
+  const item = todos.find(t=>t.id===id);
+  if(!item) return;
+  if(item.status==='done'){item.status='active';}
+  else{item.status='done';item.doneAt=getToday();}
+  saveData();render();
+}
+
+function deleteItem(id){todos=todos.filter(t=>t.id!==id);saveData();render();}
+
+function setToday(id){
+  const item=todos.find(t=>t.id===id);
+  if(!item) return;
+  item.dueDate=getToday();item.status='active';
+  saveData();render();showToast('已设为今天');
+}
+
+function openEdit(id){
+  editingId=id;
+  const item=todos.find(t=>t.id===id);if(!item)return;
+  document.getElementById('modalTitle').textContent='编辑待办';
+  document.getElementById('editTitle').value=item.title;
+  document.getElementById('editDate').value=item.dueDate||'';
+  document.getElementById('editPriority').value=item.priority||'';
+  document.getElementById('editModal').classList.add('show');
+}
+function closeModal(){document.getElementById('editModal').classList.remove('show');editingId=null;}
+
+function saveEdit(){
+  if(!editingId)return;
+  const item=todos.find(t=>t.id===editingId);if(!item)return;
+  const title=document.getElementById('editTitle').value.trim();
+  if(!title){showToast('内容不能为空');return;}
+  item.title=title;
+  item.dueDate=document.getElementById('editDate').value;
+  item.priority=document.getElementById('editPriority').value;
+  if(item.status==='inbox'&&(item.dueDate||item.priority))item.status='active';
+  saveData();render();closeModal();showToast('已保存');
+}
+
+//===== 渲染 =====
+function render(){renderToday();renderTodoList();updateBadges();}
+
+function renderToday(){
+  const container=document.getElementById('todayList');
+  const today=getToday();
+  const items=todos.filter(t=>{
+    if(t.status==='done')return false;
+    if(!t.dueDate)return false;
+    return t.dueDate<=today||isWithin3Days(t.dueDate,today);
+  }).sort((a,b)=>{
+    if(a.dueDate<today&&b.dueDate>=today)return -1;
+    if(b.dueDate<today&&a.dueDate>=today)return 1;
+    const p={'P0':0,'P1':1,'P2':2,'':3};
+    return (p[a.priority]||3)-(p[b.priority]||3);
+  });
+
+  if(!items.length){
+    container.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg><p>今天暂无待处理，真棒！</p></div>';
+    return;
+  }
+
+  container.innerHTML=items.map(item=>{
+    const isOverdue=item.dueDate<today;
+    const isToday=item.dueDate===today;
+    const cls=isOverdue?'overdue':isToday?'today-due':'soon';
+    const days=isOverdue?Math.ceil((new Date(today)-new Date(item.dueDate))/86400000):0;
+    return `<div class="today-item ${cls}">
+      <div class="item-check" onclick="toggleDone('${item.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+      <div class="item-content">
+        <div class="item-title">${esc(item.title)}</div>
+        <div class="item-meta">
+          ${item.priority?`<span class="priority-tag priority-${item.priority.toLowerCase()}">${item.priority}</span>`:''}
+          ${isOverdue?`<span class="overdue-tag">逾期${days}天</span>`:''}
+          ${isToday?'<span style="color:var(--primary);font-size:11px">今天</span>':''}
+          ${!isOverdue&&!isToday?`<span style="color:var(--warning);font-size:11px">${fmtDate(item.dueDate)}</span>`:''}
+        </div>
+      </div>
+      <div class="item-actions">
+        <button class="item-action-btn" onclick="openEdit('${item.id}')" title="编辑"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+        <button class="item-action-btn" onclick="toggleDone('${item.id}')" title="完成"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderTodoList(){
+  const container=document.getElementById('todoListContainer');
+  let items;
+  if(currentTab==='inbox')items=todos.filter(t=>t.status==='inbox');
+  else if(currentTab==='active')items=todos.filter(t=>t.status==='active');
+  else items=todos.filter(t=>t.status==='done').slice(0,30);
+
+  if(!items.length){
+    const m={inbox:'收集箱空空如也，快速记录点什么吧',active:'没有进行中的待办',done:'还没有已完成的事项'};
+    container.innerHTML=`<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/></svg><p>${m[currentTab]}</p></div>`;
+    return;
+  }
+
+  container.innerHTML=items.map(item=>`
+    <div class="todo-item ${item.status==='done'?'completed':''}">
+      <div class="item-check ${item.status==='done'?'done':''}" onclick="toggleDone('${item.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+      <div class="item-content">
+        <div class="item-title">${esc(item.title)}</div>
+        <div class="item-meta">
+          ${item.priority?`<span class="priority-tag priority-${item.priority.toLowerCase()}">${item.priority}</span>`:''}
+          ${item.dueDate?`<span>${fmtDate(item.dueDate)}</span>`:''}
+          ${item.status==='inbox'?'<span style="color:var(--warning)">待整理</span>':''}
+        </div>
+      </div>
+      <div class="item-actions">
+        ${item.status==='inbox'?`<button class="item-action-btn" onclick="setToday('${item.id}')" title="今天做"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button>`:''}
+        <button class="item-action-btn" onclick="openEdit('${item.id}')" title="编辑"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+        <button class="item-action-btn" onclick="deleteItem('${item.id}')" title="删除"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function updateBadges(){
+  const ic=todos.filter(t=>t.status==='inbox').length;
+  const ac=todos.filter(t=>t.status==='active').length;
+  const dc=todos.filter(t=>t.status==='done').length;
+  document.getElementById('tabInboxCount').textContent=ic?`(${ic})`:'';
+  document.getElementById('tabActiveCount').textContent=ac?`(${ac})`:'';
+  document.getElementById('tabDoneCount').textContent=dc?`(${dc})`:'';
+  const badge=document.getElementById('inboxBadge');
+  if(ic>0){badge.style.display='inline-flex';document.getElementById('inboxCount').textContent=ic;}
+  else badge.style.display='none';
+}
+
+function switchTab(tab){
+  currentTab=tab;
+  document.querySelectorAll('.tab-item').forEach(el=>el.classList.toggle('active',el.dataset.tab===tab));
+  renderTodoList();
+}
+
+//===== 语音输入 =====
+let recognition=null,isRecording=false;
+function toggleVoice(){
+  if(!('webkitSpeechRecognition' in window)&&!('SpeechRecognition' in window)){showToast('浏览器不支持语音，请用Safari/Chrome');return;}
+  if(isRecording){if(recognition)recognition.stop();return;}
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  recognition=new SR();recognition.lang='zh-CN';recognition.continuous=false;recognition.interimResults=true;
+  recognition.onstart=()=>{isRecording=true;document.getElementById('voiceBtn').classList.add('recording');document.getElementById('flashInput').placeholder='正在听...';};
+  recognition.onresult=(e)=>{let t='';for(let i=e.resultIndex;i<e.results.length;i++)t+=e.results[i][0].transcript;document.getElementById('flashInput').value=t;};
+  recognition.onend=()=>{isRecording=false;document.getElementById('voiceBtn').classList.remove('recording');document.getElementById('flashInput').placeholder='想到什么就记什么，回车保存...';const v=document.getElementById('flashInput').value.trim();if(v){addTodo(v);document.getElementById('flashInput').value='';}};
+  recognition.onerror=()=>{isRecording=false;document.getElementById('voiceBtn').classList.remove('recording');document.getElementById('flashInput').placeholder='想到什么就记什么，回车保存...';showToast('语音识别出错');};
+  recognition.start();
+}
+
+//===== 导入导出 =====
+function exportData(){
+  const blob=new Blob([JSON.stringify({version:1,exportedAt:new Date().toISOString(),items:todos},null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download=`闪念待办台_备份_${getToday()}.json`;a.click();
+  showToast('备份已导出');
+}
+function importData(e){
+  const file=e.target.files[0];if(!file)return;
+  const r=new FileReader();
+  r.onload=(ev)=>{try{const d=JSON.parse(ev.target.result);if(d.items&&Array.isArray(d.items)){todos=d.items;saveData();render();showToast(`已导入${todos.length}条`);}else showToast('格式不对');}catch(err){showToast('导入失败');}};
+  r.readAsText(file);e.target.value='';
+}
+function clearSampleData(){showConfirm('清空示例','删除示例数据？你的数据不受影响。',()=>{todos=todos.filter(t=>!t.isSample);saveData();render();showToast('已清空');});}
+function clearAllData(){showConfirm('清空所有','将删除全部待办，无法恢复！建议先导出。',()=>{todos=[];saveData();render();showToast('已清空');});}
+function checkBackupTip(){document.getElementById('backupTip').classList.toggle('show',todos.length>=30);}
+
+//===== 工具 =====
+function isWithin3Days(d,today){const diff=(new Date(d)-new Date(today))/86400000;return diff>0&&diff<=3;}
+function fmtDate(d){if(!d)return'';const dt=new Date(d);return `${dt.getMonth()+1}月${dt.getDate()}日`;}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function showToast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2500);}
+function showConfirm(title,msg,onOk){
+  document.getElementById('confirmTitle').textContent=title;
+  document.getElementById('confirmMsg').textContent=msg;
+  document.getElementById('confirmOk').onclick=()=>{onOk();closeConfirm();};
+  document.getElementById('confirmModal').classList.add('show');
+}
+function closeConfirm(){document.getElementById('confirmModal').classList.remove('show');}
+
+//===== 初始化 =====
+loadData();loadSyncConfig();render();
+
+// 打开时自动拉取
+if(syncConfig&&syncConfig.user){setTimeout(()=>pullFromCloud(),800);}
+
+const flashInput=document.getElementById('flashInput');
+flashInput.addEventListener('keydown',(e)=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();addTodo(flashInput.value);flashInput.value='';}});
+if(window.innerWidth>768)flashInput.focus();
+
+['editModal','confirmModal','settingsModal'].forEach(id=>{
+  document.getElementById(id).addEventListener('click',(e)=>{
+    if(e.target.classList.contains('modal-overlay')){
+      if(id==='editModal')closeModal();
+      else if(id==='confirmModal')closeConfirm();
+      else closeSettings();
+    }
+  });
+});
+
+// 页面切回时自动同步
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden&&syncConfig&&syncConfig.user)pullFromCloud();
+});
+</script>
+</body>
+</html>
