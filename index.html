@@ -325,24 +325,22 @@ h2{font-size:18px;font-weight:600;color:var(--gray-700);margin-bottom:12px;displ
 <div class="modal-overlay" id="settingsModal">
   <div class="modal">
     <h3>
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" style="display:inline;vertical-align:-3px"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-      坚果云同步设置
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" style="display:inline;vertical-align:-3px"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.091 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+      GitHub云同步
     </h3>
-    <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px">通过坚果云WebDAV实现多设备数据自动同步。数据通过CORS代理中转，安全加密传输。</p>
+    <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px">通过 GitHub Gist 实现多设备数据自动同步。数据存在你的私有 Gist 中，只有你能访问。</p>
 
     <div class="form-group">
-      <label class="form-label">坚果云账号（邮箱）</label>
-      <input type="email" class="form-input" id="davUser" placeholder="your@email.com" style="font-size:16px">
+      <label class="form-label">GitHub Token</label>
+      <input type="password" class="form-input" id="ghToken" placeholder="ghp_xxxxxxxxxxxx" style="font-size:16px">
+      <div class="form-hint">
+        创建方法：GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate → 只勾选 <b>gist</b> 权限
+      </div>
     </div>
     <div class="form-group">
-      <label class="form-label">应用密码</label>
-      <input type="password" class="form-input" id="davPass" placeholder="WebDAV应用密码" style="font-size:16px">
-      <div class="form-hint">坚果云 → 账户信息 → 安全选项 → 第三方应用管理 → 添加应用</div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">存储路径</label>
-      <input type="text" class="form-input" id="davPath" value="/flash-todo/data.json" style="font-size:16px">
-      <div class="form-hint">坚果云中的文件路径，默认即可</div>
+      <label class="form-label">Gist ID（可选，留空自动创建）</label>
+      <input type="text" class="form-input" id="ghGistId" placeholder="留空则首次同步时自动创建" style="font-size:16px">
+      <div class="form-hint">多设备同步时，在第二台设备填入第一台创建的 Gist ID</div>
     </div>
 
     <div class="modal-actions" style="flex-wrap:wrap;gap:8px">
@@ -360,9 +358,14 @@ h2{font-size:18px;font-weight:600;color:var(--gray-700);margin-bottom:12px;displ
       <div class="form-hint" style="margin-top:8px">自动同步：每次增删改后自动推送，打开页面时自动拉取</div>
     </div>
 
+    <div class="settings-section" id="gistInfoSection" style="display:none">
+      <h4>同步信息</h4>
+      <div class="form-hint" id="gistInfoText"></div>
+    </div>
+
     <div class="settings-section">
       <button class="btn btn-sm btn-danger" onclick="clearSyncConfig()">断开同步</button>
-      <div class="form-hint" style="margin-top:4px">仅清除本设备的同步凭据，不影响云端数据</div>
+      <div class="form-hint" style="margin-top:4px">仅清除本设备的凭据，不删除云端数据</div>
     </div>
   </div>
 </div>
@@ -385,22 +388,14 @@ h2{font-size:18px;font-weight:600;color:var(--gray-700);margin-bottom:12px;displ
 //===== 常量 =====
 const STORAGE_KEY = 'wb_flashtodo_items';
 const SYNC_CONFIG_KEY = 'wb_flashtodo_sync';
-//坚果云 WebDAV 基础地址
-const DAV_HOST = 'https://dav.jianguoyun.com/dav';
-// 公开CORS 代理列表（依次尝试，解决浏览器跨域限制）
-const CORS_PROXIES = [
-  'https://corsproxy.io/?',
-  'https://api.allorigins.win/raw?url=',
-  '' // 最后尝试直连（某些环境可能支持）
-];
+const GITHUB_API = 'https://api.github.com';
 
 //===== 全局状态 =====
 let todos = [];
 let currentTab = 'inbox';
 let editingId = null;
-let syncConfig = null;
+let syncConfig = null; // {token, gistId, lastSync, lastError}
 let isSyncing = false;
-let workingProxy = null; // 缓存可用的代理
 
 //===== 数据管理 =====
 function loadData(){
@@ -435,7 +430,7 @@ function initSampleData(){
   saveData(true);
 }
 
-//===== WebDAV 同步（通过CORS 代理）=====
+//===== GitHub Gist 同步 =====
 function loadSyncConfig(){
   try{
     const raw = localStorage.getItem(SYNC_CONFIG_KEY);
@@ -452,7 +447,7 @@ function saveSyncConfig(){
 function updateSyncUI(){
   const indicator = document.getElementById('syncIndicator');
   const text = document.getElementById('syncText');
-  if(!syncConfig || !syncConfig.user){
+  if(!syncConfig || !syncConfig.token){
     indicator.className = 'sync-indicator';
     text.textContent = '点击配置同步';
   } else if(isSyncing){
@@ -467,121 +462,105 @@ function updateSyncUI(){
     text.textContent = '已同步 ' + t.getHours().toString().padStart(2,'0')+':'+t.getMinutes().toString().padStart(2,'0');
   } else {
     indicator.className = 'sync-indicator synced';
-    text.textContent = '已配置，等待首次同步';
+    text.textContent = '已配置';
   }
 }
 
-function davAuth(){
-  if(!syncConfig) return '';
-  return'Basic ' + btoa(syncConfig.user + ':' + syncConfig.pass);
-}
-
-// 通过代理发请求，自动尝试多个代理
-async function davFetch(method, path, body){
-  const targetUrl = DAV_HOST + path;
-  const headers = {'Authorization': davAuth()};
+// GitHub API 请求
+async function ghFetch(url, method, body){
+  const headers = {'Authorization':'token '+syncConfig.token,'Accept':'application/vnd.github.v3+json'};
   if(body) headers['Content-Type'] = 'application/json';
-
-  // 如果有缓存的可用代理，优先使用
-  if(workingProxy !== null){
-    try{
-      const res = await doFetch(workingProxy, targetUrl, method, headers, body);
-      if(res) return res;
-    }catch(e){}
-    workingProxy = null; // 失败了，重新尝试所有
-  }
-
-  // 依次尝试代理
-  for(const proxy of CORS_PROXIES){
-    try{
-      const res = await doFetch(proxy, targetUrl, method, headers, body);
-      if(res){
-        workingProxy = proxy;
-        return res;
-      }
-    }catch(e){
-      continue;
-    }
-  }
-  throw new Error('all_proxies_failed');
-}
-
-async function doFetch(proxy, targetUrl, method, headers, body){
-  let url, opts;
-  if(proxy === ''){
-    // 直连
-    url = targetUrl;
-    opts = {method, headers, body, mode:'cors'};
-  } else if(proxy.includes('allorigins')){
-    // allorigins 只支持 GET，PUT需要用其他代理
-    if(method !== 'GET') return null;
-    url = proxy + encodeURIComponent(targetUrl);
-    opts = {method:'GET', headers:{'Authorization': headers['Authorization']}};
-  } else {
-    // corsproxy.io 风格：直接拼接 URL
-    url = proxy + encodeURIComponent(targetUrl);
-    opts = {method, headers, body};
-  }
-
   const controller = new AbortController();
-  const timeout = setTimeout(()=>controller.abort(), 10000);
-  opts.signal = controller.signal;
-
+  const timeout = setTimeout(()=>controller.abort(), 15000);
   try{
-    const res = await fetch(url, opts);
+    const res = await fetch(url, {method, headers, body: body?JSON.stringify(body):null, signal:controller.signal});
     clearTimeout(timeout);
     return res;
   }catch(e){
     clearTimeout(timeout);
-    if(e.name === 'AbortError') throw new Error('timeout');
     throw e;
   }
 }
 
+// 创建私有 Gist
+async function createGist(){
+  const payload = {
+    description: '闪念待办台- 数据同步（请勿删除）',
+    public: false,
+    files: {'flash-todo-data.json': {content: JSON.stringify({version:1, updatedAt:new Date().toISOString(), items:todos})}}
+  };
+  const res = await ghFetch(GITHUB_API+'/gists', 'POST', payload);
+  if(res.ok){
+    const data = await res.json();
+    syncConfig.gistId = data.id;
+    saveSyncConfig();
+    return data.id;
+  }
+  throw new Error('create_gist_failed');
+}
+
 async function pushToCloud(){
-  if(!syncConfig || !syncConfig.user) return;
+  if(!syncConfig || !syncConfig.token) return;
   isSyncing = true; updateSyncUI();
   try{
-    const payload = JSON.stringify({version:1, updatedAt:new Date().toISOString(), items:todos});
-    // 先尝试创建目录（忽略错误）
-    const dir = syncConfig.path.substring(0, syncConfig.path.lastIndexOf('/'));
-    if(dir){
-      try{await davFetch('MKCOL', dir + '/');}catch(e){}
-    }
-    const res = await davFetch('PUT', syncConfig.path, payload);
-    if(res && (res.ok || res.status===201|| res.status===204 || res.status===200)){
+    // 如果没有 Gist ID，先创建
+    if(!syncConfig.gistId){
+      await createGist();
       syncConfig.lastSync = new Date().toISOString();
       syncConfig.lastError = null;
       saveSyncConfig();
-    } else if(res && res.status === 401){
-      syncConfig.lastError = '认证失败';
+      showToast('已创建云端存储并同步');
+      isSyncing = false; updateSyncUI();
+      return;
+    }
+    // 更新 Gist
+    const payload = {
+      files: {'flash-todo-data.json': {content: JSON.stringify({version:1, updatedAt:new Date().toISOString(), items:todos})}}
+    };
+    const res = await ghFetch(GITHUB_API+'/gists/'+syncConfig.gistId, 'PATCH', payload);
+    if(res.ok){
+      syncConfig.lastSync = new Date().toISOString();
+      syncConfig.lastError = null;
       saveSyncConfig();
-      showToast('同步失败：账号或密码错误');
+    } else if(res.status === 401 || res.status === 403){
+      syncConfig.lastError ='Token无效';
+      saveSyncConfig();
+      showToast('Token无效或过期，请重新配置');
+    } else if(res.status === 404){
+      // Gist 被删了，重新创建
+      syncConfig.gistId = null;
+      await createGist();
+      syncConfig.lastSync = new Date().toISOString();
+      syncConfig.lastError = null;
+      saveSyncConfig();
     } else {
       syncConfig.lastError = '推送失败';
       saveSyncConfig();
     }
   }catch(e){
-    if(e.message === 'all_proxies_failed'){
-      syncConfig.lastError = '网络不通';
-      saveSyncConfig();
-      showToast('同步失败：无法连接坚果云，请检查网络');
-    }
+    syncConfig.lastError = '网络错误';
+    saveSyncConfig();
+    showToast('同步失败，请检查网络');
   }
   isSyncing = false; updateSyncUI();
 }
 
 async function pullFromCloud(){
-  if(!syncConfig || !syncConfig.user){showToast('请先配置同步');return;}
+  if(!syncConfig || !syncConfig.token){showToast('请先配置同步');return;}
   isSyncing = true; updateSyncUI();
   try{
-    const res = await davFetch('GET', syncConfig.path, null);
-    if(res && res.ok){
-      const text = await res.text();
-      try{
-        const data = JSON.parse(text);
+    if(!syncConfig.gistId){
+      // 没有 Gist ID，先推送创建
+      await pushToCloud();
+      return;
+    }
+    const res = await ghFetch(GITHUB_API+'/gists/'+syncConfig.gistId, 'GET', null);
+    if(res.ok){
+      const gist = await res.json();
+      const file = gist.files['flash-todo-data.json'];
+      if(file && file.content){
+        const data = JSON.parse(file.content);
         if(data.items && Array.isArray(data.items)){
-          // 智能合并：基于 ID 去重，保留最新修改
           const merged = mergeTodos(todos, data.items);
           todos = merged;
           saveData(true);
@@ -591,85 +570,70 @@ async function pullFromCloud(){
           saveSyncConfig();
           showToast('已同步');
         }
-      }catch(pe){
-        showToast('云端数据格式异常');
       }
-    } else if(res && res.status === 404){
-      showToast('云端暂无数据，正在上传...');
+    } else if(res.status === 404){
+      syncConfig.gistId = null;
       syncConfig.lastError = null;
       saveSyncConfig();
+      showToast('云端数据不存在，正在创建...');
       await pushToCloud();
-    } else if(res && res.status === 401){
-      syncConfig.lastError = '认证失败';
+    } else if(res.status === 401 || res.status === 403){
+      syncConfig.lastError = 'Token无效';
       saveSyncConfig();
-      showToast('认证失败，请检查账号密码');
-    } else {
-      syncConfig.lastError = '拉取失败';
-      saveSyncConfig();
+      showToast('Token 无效，请重新配置');
     }
   }catch(e){
-    if(e.message === 'all_proxies_failed'){
-      syncConfig.lastError = '网络不通';
-      saveSyncConfig();
-      showToast('无法连接坚果云，请检查网络');
-    }
+    syncConfig.lastError = '网络错误';
+    saveSyncConfig();
+    showToast('拉取失败，请检查网络');
   }
   isSyncing = false; updateSyncUI();
 }
 
-// 智能合并：以 ID 为key，保留两端数据不丢失
 function mergeTodos(local, remote){
   const map = new Map();
-  // 先放远端
   remote.forEach(item=>map.set(item.id, item));
-  // 再放本地（本地优先覆盖，因为是最新操作）
   local.forEach(item=>map.set(item.id, item));
   return Array.from(map.values());
 }
 
 let pushTimer = null;
 function debouncedPush(){
-  if(!syncConfig || !syncConfig.user) return;
+  if(!syncConfig || !syncConfig.token) return;
   clearTimeout(pushTimer);
   pushTimer = setTimeout(()=>pushToCloud(), 2000);
 }
 
 async function testSync(){
-  const user = document.getElementById('davUser').value.trim();
-  const pass = document.getElementById('davPass').value.trim();
-  if(!user || !pass){showToast('请填写账号和密码');return;}
+  const token = document.getElementById('ghToken').value.trim();
+  if(!token){showToast('请填写 GitHub Token');return;}
   const btn = document.getElementById('testSyncBtn');
   btn.textContent = '测试中...'; btn.disabled = true;
 
-  // 临时设置 config用于测试
-  const oldConfig = syncConfig;
-  syncConfig = {user, pass, path: document.getElementById('davPath').value.trim() || '/flash-todo/data.json'};
-  workingProxy = null;
-
   try{
-    const res = await davFetch('GET', '/', null);
-    if(res && (res.ok || res.status === 207|| res.status === 404|| res.status === 301)){
-      showToast('连接成功！');
+    const res = await fetch(GITHUB_API+'/user', {
+      headers:{'Authorization':'token '+token,'Accept':'application/vnd.github.v3+json'}
+    });
+    if(res.ok){
+      const user = await res.json();
+      showToast('连接成功！你好, '+user.login);
       btn.textContent = '连接成功';
       btn.style.borderColor = 'var(--success)';
       btn.style.color = 'var(--success)';
-    } else if(res && res.status === 401){
-      showToast('认证失败，请检查账号和应用密码');
-      btn.textContent = '认证失败';
+    } else if(res.status === 401){
+      showToast('Token 无效，请检查');
+      btn.textContent = 'Token无效';
       btn.style.borderColor = 'var(--danger)';
       btn.style.color = 'var(--danger)';
-      syncConfig = oldConfig;
     } else {
-      showToast('连接异常 (' + (res?res.status:'无响应') + ')');
+      showToast('连接异常 ('+res.status+')');
       btn.textContent = '连接异常';
-      syncConfig = oldConfig;
     }
   }catch(e){
-    showToast('所有通道均失败，请确认网络可访问外网');
-    btn.textContent = '网络不通';
+    showToast('网络错误');
+    btn.textContent = '网络错误';
     btn.style.borderColor = 'var(--danger)';
     btn.style.color = 'var(--danger)';
-    syncConfig = oldConfig;
   }
   btn.disabled = false;
   setTimeout(()=>{btn.textContent='测试连接';btn.style.borderColor='';btn.style.color='';}, 3000);
@@ -677,20 +641,26 @@ async function testSync(){
 
 //===== 设置面板 =====
 function openSettings(){
-  document.getElementById('davUser').value = syncConfig?.user || '';
-  document.getElementById('davPass').value = syncConfig?.pass || '';
-  document.getElementById('davPath').value = syncConfig?.path || '/flash-todo/data.json';
+  document.getElementById('ghToken').value = syncConfig?.token || '';
+  document.getElementById('ghGistId').value = syncConfig?.gistId || '';
+  // 显示 Gist 信息
+  const infoSection = document.getElementById('gistInfoSection');
+  const infoText = document.getElementById('gistInfoText');
+  if(syncConfig && syncConfig.gistId){
+    infoSection.style.display = 'block';
+    infoText.innerHTML = 'Gist ID: <b>'+syncConfig.gistId+'</b><br>在其他设备配置同步时填入此 ID';
+  } else {
+    infoSection.style.display = 'none';
+  }
   document.getElementById('settingsModal').classList.add('show');
 }
 function closeSettings(){document.getElementById('settingsModal').classList.remove('show');}
 
 function saveSettings(){
-  const user = document.getElementById('davUser').value.trim();
-  const pass = document.getElementById('davPass').value.trim();
-  const path = document.getElementById('davPath').value.trim() || '/flash-todo/data.json';
-  if(!user || !pass){showToast('请填写账号和密码');return;}
-  syncConfig = {user, pass, path, lastSync:syncConfig?.lastSync||null, lastError:null};
-  workingProxy = null;
+  const token = document.getElementById('ghToken').value.trim();
+  const gistId = document.getElementById('ghGistId').value.trim();
+  if(!token){showToast('请填写 GitHub Token');return;}
+  syncConfig = {token, gistId: gistId||syncConfig?.gistId||null, lastSync:syncConfig?.lastSync||null, lastError:null};
   saveSyncConfig();
   closeSettings();
   showToast('配置已保存，开始同步...');
@@ -698,9 +668,8 @@ function saveSettings(){
 }
 
 function clearSyncConfig(){
-  showConfirm('断开同步','确定要清除同步配置吗？云端数据不受影响。',()=>{
+  showConfirm('断开同步','确定要清除同步配置吗？云端 Gist 数据不会被删除。',()=>{
     syncConfig = null;
-    workingProxy = null;
     localStorage.removeItem(SYNC_CONFIG_KEY);
     updateSyncUI();
     closeSettings();
@@ -900,7 +869,7 @@ function closeConfirm(){document.getElementById('confirmModal').classList.remove
 loadData();loadSyncConfig();render();
 
 // 打开时自动拉取
-if(syncConfig&&syncConfig.user){setTimeout(()=>pullFromCloud(),800);}
+if(syncConfig&&syncConfig.token){setTimeout(()=>pullFromCloud(),800);}
 
 const flashInput=document.getElementById('flashInput');
 flashInput.addEventListener('keydown',(e)=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();addTodo(flashInput.value);flashInput.value='';}});
@@ -918,7 +887,7 @@ if(window.innerWidth>768)flashInput.focus();
 
 // 页面切回时自动同步
 document.addEventListener('visibilitychange',()=>{
-  if(!document.hidden&&syncConfig&&syncConfig.user)pullFromCloud();
+  if(!document.hidden&&syncConfig&&syncConfig.token)pullFromCloud();
 });
 </script>
 </body>
