@@ -316,6 +316,12 @@ h2{font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:14px
 }
 .flash-zone-chip:hover{border-color:var(--primary);color:var(--primary)}
 .flash-zone-chip.active{background:var(--primary);color:#fff;border-color:transparent}
+.flash-date-input{
+  padding:5px 10px;border-radius:20px;border:0.5px solid var(--border-light);
+  font-size:12px;color:var(--text-secondary);background:var(--bg-card);
+  cursor:pointer;outline:none;min-width:36px;
+}
+.flash-date-input::-webkit-calendar-picker-indicator{cursor:pointer}
 
 @media(max-width:768px){
   .container{padding:14px}
@@ -395,8 +401,15 @@ h2{font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:14px
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </button>
     </div>
-    <div class="flash-hint">回车或点 + 保存 · 点麦克风语音输入 · 稍后可整理优先级和日期</div>
+    <div class="flash-hint">回车或点 + 保存 · 点麦克风语音输入 · 支持输入「明天」「周五」自动识别日期</div>
     <div class="flash-zone-chips" id="flashZoneChips"></div>
+    <div class="flash-zone-chips" id="flashDateChips">
+      <span class="flash-zone-chip active" onclick="selectFlashDate('')">不设日期</span>
+      <span class="flash-zone-chip" onclick="selectFlashDate(0)">今天</span>
+      <span class="flash-zone-chip" onclick="selectFlashDate(1)">明天</span>
+      <span class="flash-zone-chip" onclick="selectFlashDate(2)">后天</span>
+      <input type="date" class="flash-date-input" id="flashDateInput" onchange="selectFlashDateCustom(this.value)" title="选择日期">
+    </div>
     <div class="inbox-badge" id="inboxBadge" style="display:none">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/></svg>
       <span id="inboxCount">0</span> 条待整理
@@ -559,6 +572,7 @@ let todos = [];
 let zones = []; // [{id, name}]
 let currentZone = 'all'; // 'all' 或 zone id
 let flashZone = ''; // 速记区当前选中的分区，空=未分类
+let flashDate = ''; // 速记区当前选中的日期，空=不设日期
 let currentTab = 'inbox';
 let editingId = null;
 let expandedId = null; // 当前展开查看进展的条目
@@ -915,11 +929,10 @@ function renderWelcome(){
   else greeting = '晚上好';
 
   const today = getToday();
-  const todayTasks = todos.filter(t=>t.status!=='done'&&t.dueDate&&t.dueDate<=today).length;
-  const soonTasks = todos.filter(t=>t.status!=='done'&&t.dueDate&&isWithin3Days(t.dueDate,today)).length;
-  const total = todayTasks + soonTasks;
+  const todayTasks = todos.filter(t=>t.status!=='done'&&t.status!=='anytime'&&t.dueDate&&t.dueDate<=today).length;
+  const total = todayTasks;
 
-  el.innerHTML = `<span class="welcome-text">${greeting}${total>0?'，你有 <b>'+total+'</b> 项待处理':'，暂无紧急事项'}</span>${total>0?'<span class="welcome-count">'+todayTasks+' 项今天到期</span>':''}`;
+  el.innerHTML = `<span class="welcome-text">${greeting}${total>0?'，你有 <b>'+total+'</b> 项今日待处理':'，暂无紧急事项'}</span>${total>0?'<span class="welcome-count">'+total+' 项</span>':''}`;
 }
 
 // 每日完成统计
@@ -946,12 +959,12 @@ function submitFlash(){
 
 function addTodo(title){
   if(!title.trim()) return;
-  // 智能日期识别
-  const detectedDate = extractDate(title);
-  const status = detectedDate ? 'active' : 'inbox';
-  todos.unshift({id:genId(),title:title.trim(),dueDate:detectedDate,priority:'',status:status,zone:flashZone,progress:[],createdAt:getToday(),isSample:false});
+  // 优先用手动选择的日期，否则智能识别
+  const dueDate = flashDate || extractDate(title);
+  const status = dueDate ? 'active' : 'inbox';
+  todos.unshift({id:genId(),title:title.trim(),dueDate:dueDate,priority:'',status:status,zone:flashZone,progress:[],createdAt:getToday(),isSample:false});
   saveData();render();
-  if(detectedDate){showToast('已记录，日期设为 '+fmtDate(detectedDate));}
+  if(dueDate){showToast('已记录，日期: '+fmtDate(dueDate));}
   else{showToast('已记录');}
 }
 
@@ -984,6 +997,38 @@ function renderFlashZoneChips(){
 function selectFlashZone(zoneId){
   flashZone = zoneId;
   renderFlashZoneChips();
+}
+
+// 速记区日期快捷选择
+function selectFlashDate(offset){
+  if(offset === ''){
+    flashDate = '';
+  } else {
+    const d = new Date();
+    d.setDate(d.getDate() + offset);
+    flashDate = d.toISOString().split('T')[0];
+  }
+  renderFlashDateChips();
+}
+
+function selectFlashDateCustom(val){
+  flashDate = val || '';
+  renderFlashDateChips();
+}
+
+function renderFlashDateChips(){
+  const chips = document.getElementById('flashDateChips');
+  const today = getToday();
+  const tmr = new Date(Date.now()+86400000).toISOString().split('T')[0];
+  const day2 = new Date(Date.now()+2*86400000).toISOString().split('T')[0];
+  chips.innerHTML = `
+    <span class="flash-zone-chip ${flashDate===''?'active':''}" onclick="selectFlashDate('')">不设日期</span>
+    <span class="flash-zone-chip ${flashDate===today?'active':''}" onclick="selectFlashDate(0)">今天</span>
+    <span class="flash-zone-chip ${flashDate===tmr?'active':''}" onclick="selectFlashDate(1)">明天</span>
+    <span class="flash-zone-chip ${flashDate===day2?'active':''}" onclick="selectFlashDate(2)">后天</span>
+    <input type="date" class="flash-date-input" id="flashDateInput" value="${flashDate&&flashDate!==today&&flashDate!==tmr&&flashDate!==day2?flashDate:''}" onchange="selectFlashDateCustom(this.value)" title="选择日期">
+    ${flashDate&&flashDate!==today&&flashDate!==tmr&&flashDate!==day2?'<span class="flash-zone-chip active" style="font-size:11px">'+fmtDate(flashDate)+'</span>':''}
+  `;
 }
 
 function addZone(){
@@ -1159,8 +1204,10 @@ function renderToday(){
   const today=getToday();
   const items=filterByZone(todos).filter(t=>{
     if(t.status==='done')return false;
+    if(t.status==='anytime')return false;
     if(!t.dueDate)return false;
-    return t.dueDate<=today||isWithin3Days(t.dueDate,today);
+    // 只显示今天到期 + 逾期的（不包含未来几天的）
+    return t.dueDate<=today;
   }).sort((a,b)=>{
     // 置顶的永远在最前面
     if(a.pinned && !b.pinned) return -1;
