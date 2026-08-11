@@ -1005,6 +1005,7 @@ function switchZone(zoneId){
   // 全局主题色跟随分区
   applyZoneTheme(zoneId);
   renderZones();
+  renderFlashZoneChips();
   render();
 }
 
@@ -1158,7 +1159,8 @@ function confirmDeleteZone(zoneId){
 function filterByZone(items){
   let filtered = items.filter(t=>!t.deleted);
   if(currentZone === 'all') return filtered;
-  return filtered.filter(t=>t.zone===currentZone);
+  // 显示本分区 + 未分类的
+  return filtered.filter(t=>t.zone===currentZone || !t.zone);
 }
 
 //===== 进展记录 =====
