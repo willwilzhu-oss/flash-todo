@@ -283,6 +283,38 @@ h2{font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:14px
 }
 .backup-tip.show{display:flex}
 
+/* 欢迎语 */
+.welcome-bar{
+  padding:14px 18px;border-radius:14px;margin-bottom:16px;
+  background:var(--bg-card-solid);border:0.5px solid var(--border-light);
+  font-size:14px;color:var(--text-primary);font-weight:500;
+  display:flex;align-items:center;justify-content:space-between;
+}
+.welcome-bar .welcome-text{flex:1}
+.welcome-bar .welcome-count{
+  font-size:12px;color:var(--text-tertiary);background:var(--primary-light);
+  padding:4px 10px;border-radius:20px;color:var(--primary);font-weight:500;
+}
+
+/* 每日完成统计 */
+.daily-stats{
+  padding:14px 18px;border-radius:14px;margin-bottom:16px;
+  background:var(--success-light);border:0.5px solid rgba(16,185,129,.1);
+  font-size:13px;color:var(--success);font-weight:500;
+  display:flex;align-items:center;gap:8px;
+}
+.daily-stats:empty{display:none}
+
+/* 速记区分区快捷选择 */
+.flash-zone-chips{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.flash-zone-chip{
+  padding:5px 12px;border-radius:20px;border:0.5px solid var(--border-light);
+  background:var(--bg-card);color:var(--text-tertiary);font-size:12px;
+  cursor:pointer;transition:all .2s;font-weight:500;
+}
+.flash-zone-chip:hover{border-color:var(--primary);color:var(--primary)}
+.flash-zone-chip.active{background:var(--primary);color:#fff;border-color:transparent}
+
 @media(max-width:768px){
   .container{padding:14px}
   .header h1{font-size:20px}
@@ -335,6 +367,9 @@ h2{font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:14px
     <button class="btn btn-sm" onclick="exportData()" style="margin-left:auto">立即备份</button>
   </div>
 
+  <!-- 欢迎语+今日摘要 -->
+  <div class="welcome-bar" id="welcomeBar"></div>
+
   <!-- 分区导航 -->
   <div class="zone-bar" id="zoneBar">
     <div class="zone-tabs" id="zoneTabs"></div>
@@ -359,6 +394,7 @@ h2{font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:14px
       </button>
     </div>
     <div class="flash-hint">回车或点 + 保存 · 点麦克风语音输入 · 稍后可整理优先级和日期</div>
+    <div class="flash-zone-chips" id="flashZoneChips"></div>
     <div class="inbox-badge" id="inboxBadge" style="display:none">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/></svg>
       <span id="inboxCount">0</span> 条待整理
@@ -388,6 +424,9 @@ h2{font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:14px
     <div id="todoListContainer" class="section-scroll"></div>
   </div>
 
+  <!-- 每日完成统计 -->
+  <div class="daily-stats" id="dailyStats"></div>
+
   <div style="text-align:center;padding:20px 0;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
     <button class="btn btn-sm btn-danger" onclick="clearSampleData()">清空示例数据</button>
     <button class="btn btn-sm" onclick="clearAllData()">清空所有数据</button>
@@ -405,6 +444,12 @@ h2{font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:14px
     <div class="form-group">
       <label class="form-label">截止日期</label>
       <input type="date" class="form-input" id="editDate" style="font-size:16px">
+      <div class="quick-dates" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+        <button type="button" class="btn btn-sm" onclick="setQuickDate(0)">今天</button>
+        <button type="button" class="btn btn-sm" onclick="setQuickDate(1)">明天</button>
+        <button type="button" class="btn btn-sm" onclick="setQuickDate(2)">后天</button>
+        <button type="button" class="btn btn-sm" onclick="setQuickDate('nextMon')">下周一</button>
+      </div>
     </div>
     <div class="form-group">
       <label class="form-label">优先级</label>
@@ -502,6 +547,7 @@ const GITHUB_API = 'https://api.github.com';
 let todos = [];
 let zones = []; // [{id, name}]
 let currentZone = 'all'; // 'all' 或 zone id
+let flashZone = ''; // 速记区当前选中的分区，空=未分类
 let currentTab = 'inbox';
 let editingId = null;
 let expandedId = null; // 当前展开查看进展的条目
@@ -532,6 +578,7 @@ function saveData(skipSync){
 function saveZones(){
   localStorage.setItem(ZONES_KEY, JSON.stringify(zones));
   renderZones();
+  renderFlashZoneChips();
 }
 
 function genId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
@@ -800,6 +847,81 @@ function clearSyncConfig(){
 }
 
 //===== 核心操作 =====
+
+// 快捷日期设置
+function setQuickDate(offset){
+  const d = new Date();
+  if(offset === 'nextMon'){
+    const day = d.getDay();
+    const daysUntilMon = day === 0 ? 1 : 8 - day;
+    d.setDate(d.getDate() + daysUntilMon);
+  } else {
+    d.setDate(d.getDate() + offset);
+  }
+  document.getElementById('editDate').value = d.toISOString().split('T')[0];
+}
+
+// 智能日期识别
+function extractDate(text){
+  const today = new Date();
+  const patterns = [
+    {re:/今天|今日/,days:0},
+    {re:/明天|明日/,days:1},
+    {re:/后天/,days:2},
+    {re:/大后天/,days:3},
+    {re:/下周一/,days:()=>{const d=today.getDay();return d===0?1:8-d}},
+    {re:/下周二/,days:()=>{const d=today.getDay();return d<=2?2-d+7:9-d}},
+    {re:/下周三/,days:()=>{const d=today.getDay();return d<=3?3-d+7:10-d}},
+    {re:/下周五/,days:()=>{const d=today.getDay();return d<=5?5-d+7:12-d}},
+    {re:/周一|礼拜一|星期一/,days:()=>{const d=today.getDay();return d===0?1:d===1?7:8-d}},
+    {re:/周二|礼拜二|星期二/,days:()=>{const d=today.getDay();return d<=2?2-d||7:9-d}},
+    {re:/周三|礼拜三|星期三/,days:()=>{const d=today.getDay();return d<=3?3-d||7:10-d}},
+    {re:/周四|礼拜四|星期四/,days:()=>{const d=today.getDay();return d<=4?4-d||7:11-d}},
+    {re:/周五|礼拜五|星期五/,days:()=>{const d=today.getDay();return d<=5?5-d||7:12-d}},
+    {re:/这周末|本周末|周末/,days:()=>{const d=today.getDay();return d===0?0:d===6?0:6-d}},
+  ];
+  for(const p of patterns){
+    if(p.re.test(text)){
+      const days = typeof p.days === 'function' ? p.days() : p.days;
+      const target = new Date(today);
+      target.setDate(target.getDate() + days);
+      return target.toISOString().split('T')[0];
+    }
+  }
+  return '';
+}
+
+// 欢迎语渲染
+function renderWelcome(){
+  const el = document.getElementById('welcomeBar');
+  const hour = new Date().getHours();
+  let greeting;
+  if(hour < 6) greeting = '夜深了';
+  else if(hour < 9) greeting = '早上好';
+  else if(hour < 12) greeting = '上午好';
+  else if(hour < 14) greeting = '中午好';
+  else if(hour < 18) greeting = '下午好';
+  else greeting = '晚上好';
+
+  const today = getToday();
+  const todayTasks = todos.filter(t=>t.status!=='done'&&t.dueDate&&t.dueDate<=today).length;
+  const soonTasks = todos.filter(t=>t.status!=='done'&&t.dueDate&&isWithin3Days(t.dueDate,today)).length;
+  const total = todayTasks + soonTasks;
+
+  el.innerHTML = `<span class="welcome-text">${greeting}${total>0?'，你有 <b>'+total+'</b> 项待处理':'，暂无紧急事项'}</span>${total>0?'<span class="welcome-count">'+todayTasks+' 项今天到期</span>':''}`;
+}
+
+// 每日完成统计
+function renderDailyStats(){
+  const el = document.getElementById('dailyStats');
+  const today = getToday();
+  const doneToday = todos.filter(t=>t.doneAt===today).length;
+  if(doneToday === 0){el.innerHTML='';return;}
+  const msgs = ['继续加油！','效率不错！','太棒了，保持住！','今天超高效！','完美的一天！'];
+  const msg = doneToday >= 5 ? msgs[4] : msgs[Math.min(doneToday-1, 3)];
+  el.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg> 今日已完成 <b>${doneToday}</b> 项 · ${msg}`;
+}
+
 function submitFlash(){
   const input = document.getElementById('flashInput');
   if(input.value.trim()){
@@ -813,8 +935,13 @@ function submitFlash(){
 
 function addTodo(title){
   if(!title.trim()) return;
-  todos.unshift({id:genId(),title:title.trim(),dueDate:'',priority:'',status:'inbox',zone:currentZone==='all'?'':currentZone,progress:[],createdAt:getToday(),isSample:false});
-  saveData();render();showToast('已记录');
+  // 智能日期识别
+  const detectedDate = extractDate(title);
+  const status = detectedDate ? 'active' : 'inbox';
+  todos.unshift({id:genId(),title:title.trim(),dueDate:detectedDate,priority:'',status:status,zone:flashZone,progress:[],createdAt:getToday(),isSample:false});
+  saveData();render();
+  if(detectedDate){showToast('已记录，日期设为 '+fmtDate(detectedDate));}
+  else{showToast('已记录');}
 }
 
 //===== 分区管理 =====
@@ -831,6 +958,21 @@ function switchZone(zoneId){
   currentZone = zoneId;
   renderZones();
   render();
+}
+
+// 速记区分区快捷标签
+function renderFlashZoneChips(){
+  const container = document.getElementById('flashZoneChips');
+  let html = `<span class="flash-zone-chip ${flashZone===''?'active':''}" onclick="selectFlashZone('')">未分类</span>`;
+  zones.forEach(z=>{
+    html += `<span class="flash-zone-chip ${flashZone===z.id?'active':''}" onclick="selectFlashZone('${z.id}')">${esc(z.name)}</span>`;
+  });
+  container.innerHTML = html;
+}
+
+function selectFlashZone(zoneId){
+  flashZone = zoneId;
+  renderFlashZoneChips();
 }
 
 function addZone(){
@@ -960,7 +1102,7 @@ function saveEdit(){
 }
 
 //===== 渲染 =====
-function render(){renderToday();renderTodoList();updateBadges();}
+function render(){renderWelcome();renderToday();renderTodoList();updateBadges();renderDailyStats();}
 
 function renderToday(){
   const container=document.getElementById('todayList');
@@ -1118,7 +1260,7 @@ function showConfirm(title,msg,onOk){
 function closeConfirm(){document.getElementById('confirmModal').classList.remove('show');}
 
 //===== 初始化 =====
-loadData();loadSyncConfig();renderZones();render();
+loadData();loadSyncConfig();renderZones();renderFlashZoneChips();render();
 
 // 打开时自动拉取
 if(syncConfig&&syncConfig.token){setTimeout(()=>pullFromCloud(),800);}
