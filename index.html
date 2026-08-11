@@ -590,8 +590,8 @@ function loadData(){
   try{
     const z = localStorage.getItem(ZONES_KEY);
     if(z) zones = JSON.parse(z);
-    else zones = [{id:'work',name:'工作'},{id:'life',name:'生活'}];
-  }catch(e){zones = [{id:'work',name:'工作'},{id:'life',name:'生活'}];}
+    else zones = [{id:'work',name:'工作',color:'#2563eb'},{id:'life',name:'生活',color:'#f59e0b'}];
+  }catch(e){zones = [{id:'work',name:'工作',color:'#2563eb'},{id:'life',name:'生活',color:'#f59e0b'}];}
 }
 
 function saveData(skipSync){
@@ -681,7 +681,7 @@ async function createGist(){
   const payload = {
     description: '闪念待办台- 数据同步（请勿删除）',
     public: false,
-    files: {'flash-todo-data.json': {content: JSON.stringify({version:1, updatedAt:new Date().toISOString(), items:todos})}}
+    files: {'flash-todo-data.json': {content: JSON.stringify({version:2, updatedAt:new Date().toISOString(), items:todos, zones:zones})}}
   };
   const res = await ghFetch(GITHUB_API+'/gists', 'POST', payload);
   if(res.ok){
@@ -709,7 +709,7 @@ async function pushToCloud(){
     }
     // 更新 Gist
     const payload = {
-      files: {'flash-todo-data.json': {content: JSON.stringify({version:1, updatedAt:new Date().toISOString(), items:todos})}}
+      files: {'flash-todo-data.json': {content: JSON.stringify({version:2, updatedAt:new Date().toISOString(), items:todos, zones:zones})}}
     };
     const res = await ghFetch(GITHUB_API+'/gists/'+syncConfig.gistId, 'PATCH', payload);
     if(res.ok){
@@ -757,6 +757,12 @@ async function pullFromCloud(){
         if(data.items && Array.isArray(data.items)){
           const merged = mergeTodos(todos, data.items);
           todos = merged;
+          // 同步 zones（远端优先覆盖）
+          if(data.zones && Array.isArray(data.zones)){
+            zones = data.zones;
+            localStorage.setItem(ZONES_KEY, JSON.stringify(zones));
+            renderZones();renderFlashZoneChips();
+          }
           saveData(true);
           render();
           syncConfig.lastSync = new Date().toISOString();
@@ -786,8 +792,22 @@ async function pullFromCloud(){
 
 function mergeTodos(local, remote){
   const map = new Map();
-  remote.forEach(item=>map.set(item.id, item));
+  // 先放本地
   local.forEach(item=>map.set(item.id, item));
+  // 远端覆盖：同ID时取updatedAt更新的；如果远端没有updatedAt则默认用远端（来自其他设备的最新推送）
+  remote.forEach(item=>{
+    const existing = map.get(item.id);
+    if(!existing){
+      map.set(item.id, item);
+    } else {
+      // 取更新时间更晚的那个
+      const localTime = existing.updatedAt || existing.createdAt || '';
+      const remoteTime = item.updatedAt || item.createdAt || '';
+      if(remoteTime >= localTime){
+        map.set(item.id, item);
+      }
+    }
+  });
   return Array.from(map.values());
 }
 
@@ -929,7 +949,7 @@ function renderWelcome(){
   else greeting = '晚上好';
 
   const today = getToday();
-  const todayTasks = todos.filter(t=>t.status!=='done'&&t.status!=='anytime'&&t.dueDate&&t.dueDate<=today).length;
+  const todayTasks = todos.filter(t=>!t.deleted&&t.status!=='done'&&t.status!=='anytime'&&t.dueDate&&t.dueDate<=today).length;
   const total = todayTasks;
 
   el.innerHTML = `<span class="welcome-text">${greeting}${total>0?'，你有 <b>'+total+'</b> 项今日待处理':'，暂无紧急事项'}</span>${total>0?'<span class="welcome-count">'+total+' 项</span>':''}`;
@@ -939,7 +959,7 @@ function renderWelcome(){
 function renderDailyStats(){
   const el = document.getElementById('dailyStats');
   const today = getToday();
-  const doneToday = todos.filter(t=>t.doneAt===today).length;
+  const doneToday = todos.filter(t=>!t.deleted&&t.doneAt===today).length;
   if(doneToday === 0){el.innerHTML='';return;}
   const msgs = ['继续加油！','效率不错！','太棒了，保持住！','今天超高效！','完美的一天！'];
   const msg = doneToday >= 5 ? msgs[4] : msgs[Math.min(doneToday-1, 3)];
@@ -959,10 +979,11 @@ function submitFlash(){
 
 function addTodo(title){
   if(!title.trim()) return;
+  const now = new Date().toISOString();
   // 优先用手动选择的日期，否则智能识别
   const dueDate = flashDate || extractDate(title);
   const status = dueDate ? 'active' : 'inbox';
-  todos.unshift({id:genId(),title:title.trim(),dueDate:dueDate,priority:'',status:status,zone:flashZone,progress:[],createdAt:getToday(),isSample:false});
+  todos.unshift({id:genId(),title:title.trim(),dueDate:dueDate,priority:'',status:status,zone:flashZone,progress:[],createdAt:getToday(),updatedAt:now,isSample:false});
   saveData();render();
   if(dueDate){showToast('已记录，日期: '+fmtDate(dueDate));}
   else{showToast('已记录');}
@@ -973,15 +994,45 @@ function renderZones(){
   const container = document.getElementById('zoneTabs');
   let html = `<button class="zone-tab ${currentZone==='all'?'active':''}" onclick="switchZone('all')">全部</button>`;
   zones.forEach(z=>{
-    html += `<button class="zone-tab ${currentZone===z.id?'active':''}" onclick="switchZone('${z.id}')" oncontextmenu="event.preventDefault();editZone('${z.id}')">${esc(z.name)}</button>`;
+    const colorStyle = currentZone===z.id ? `background:${z.color||'var(--primary)'};color:#fff;border-color:transparent` : `border-left:3px solid ${z.color||'var(--primary)'}`;
+    html += `<button class="zone-tab ${currentZone===z.id?'active':''}" style="${colorStyle}" onclick="switchZone('${z.id}')" oncontextmenu="event.preventDefault();editZone('${z.id}')">${esc(z.name)}</button>`;
   });
   container.innerHTML = html;
 }
 
 function switchZone(zoneId){
   currentZone = zoneId;
+  // 全局主题色跟随分区
+  applyZoneTheme(zoneId);
   renderZones();
   render();
+}
+
+function applyZoneTheme(zoneId){
+  const zone = zones.find(z=>z.id===zoneId);
+  const color = zone ? (zone.color || '#2563eb') : '#2563eb';
+  const root = document.documentElement;
+  root.style.setProperty('--primary', color);
+  root.style.setProperty('--primary-light', hexToRgba(color, 0.08));
+  root.style.setProperty('--primary-medium', hexToRgba(color, 0.15));
+  root.style.setProperty('--primary-dark', darkenColor(color, 20));
+}
+
+function hexToRgba(hex, alpha){
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function darkenColor(hex, percent){
+  let r = parseInt(hex.slice(1,3),16);
+  let g = parseInt(hex.slice(3,5),16);
+  let b = parseInt(hex.slice(5,7),16);
+  r = Math.max(0, Math.floor(r * (1 - percent/100)));
+  g = Math.max(0, Math.floor(g * (1 - percent/100)));
+  b = Math.max(0, Math.floor(b * (1 - percent/100)));
+  return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
 }
 
 // 速记区分区快捷标签
@@ -989,7 +1040,9 @@ function renderFlashZoneChips(){
   const container = document.getElementById('flashZoneChips');
   let html = `<span class="flash-zone-chip ${flashZone===''?'active':''}" onclick="selectFlashZone('')">未分类</span>`;
   zones.forEach(z=>{
-    html += `<span class="flash-zone-chip ${flashZone===z.id?'active':''}" onclick="selectFlashZone('${z.id}')">${esc(z.name)}</span>`;
+    const isActive = flashZone===z.id;
+    const style = isActive ? `background:${z.color||'var(--primary)'};color:#fff;border-color:transparent` : `border-color:${z.color||'var(--primary)'};color:${z.color||'var(--primary)'}`;
+    html += `<span class="flash-zone-chip ${isActive?'active':''}" style="${style}" onclick="selectFlashZone('${z.id}')">${esc(z.name)}</span>`;
   });
   container.innerHTML = html;
 }
@@ -1031,40 +1084,81 @@ function renderFlashDateChips(){
   `;
 }
 
+// 预设颜色板
+const ZONE_COLORS = [
+  {name:'蓝色',color:'#2563eb'},
+  {name:'橙色',color:'#f59e0b'},
+  {name:'绿色',color:'#10b981'},
+  {name:'紫色',color:'#7c3aed'},
+  {name:'粉色',color:'#ec4899'},
+  {name:'红色',color:'#ef4444'},
+  {name:'青色',color:'#06b6d4'},
+  {name:'灰色',color:'#6b7280'},
+];
+
 function addZone(){
-  const name = prompt('新分区名称：');
-  if(!name || !name.trim()) return;
-  const id = 'z_'+genId();
-  zones.push({id, name:name.trim()});
-  saveZones();
-  switchZone(id);
-  showToast('已添加分区: '+name.trim());
+  openZoneEditor(null);
 }
 
 function editZone(zoneId){
   const zone = zones.find(z=>z.id===zoneId);
   if(!zone) return;
-  const action = prompt('输入新名称，或输入"删除"来移除此分区：', zone.name);
-  if(action === null) return;
-  if(action === '删除' || action === 'delete'){
+  openZoneEditor(zone);
+}
+
+function openZoneEditor(zone){
+  const isEdit = !!zone;
+  const title = isEdit ? '编辑分区' : '添加分区';
+  const name = zone ? zone.name : '';
+  const color = zone ? (zone.color||'#2563eb') : '#2563eb';
+
+  const colorOptions = ZONE_COLORS.map(c=>
+    `<span style="display:inline-block;width:28px;height:28px;border-radius:50%;background:${c.color};cursor:pointer;border:2px solid ${c.color===color?'var(--text-primary)':'transparent'}" onclick="document.getElementById('zoneColorVal').value='${c.color}';this.parentNode.querySelectorAll('span').forEach(s=>s.style.borderColor='transparent');this.style.borderColor='var(--text-primary)'" title="${c.name}"></span>`
+  ).join('');
+
+  const deleteBtn = isEdit ? `<button class="btn btn-sm btn-danger" onclick="confirmDeleteZone('${zone.id}')">删除分区</button>` : '';
+
+  document.getElementById('confirmTitle').textContent = title;
+  document.getElementById('confirmMsg').innerHTML = `
+    <div class="form-group"><label class="form-label">分区名称</label><input type="text" class="form-input" id="zoneNameInput" value="${esc(name)}" placeholder="如：工作、学习、副业" style="font-size:16px"></div>
+    <div class="form-group"><label class="form-label">主题色</label><div style="display:flex;gap:8px;flex-wrap:wrap">${colorOptions}</div><input type="hidden" id="zoneColorVal" value="${color}"></div>
+    ${deleteBtn}
+  `;
+  document.getElementById('confirmOk').onclick = ()=>{
+    const newName = document.getElementById('zoneNameInput').value.trim();
+    const newColor = document.getElementById('zoneColorVal').value;
+    if(!newName){showToast('请输入分区名称');return;}
+    if(isEdit){
+      zone.name = newName;
+      zone.color = newColor;
+    } else {
+      const id = 'z_'+genId();
+      zones.push({id, name:newName, color:newColor});
+      switchZone(id);
+    }
+    saveZones();
+    closeConfirm();
+    showToast(isEdit?'已更新':'已添加分区: '+newName);
+  };
+  document.getElementById('confirmModal').classList.add('show');
+}
+
+function confirmDeleteZone(zoneId){
+  if(confirm('确定删除此分区？该分区的待办将变为未分类。')){
     zones = zones.filter(z=>z.id!==zoneId);
-    // 把该分区的待办改为未分类
-    todos.forEach(t=>{if(t.zone===zoneId) t.zone='';});
-    saveData(true);
-    saveZones();
+    todos.forEach(t=>{if(t.zone===zoneId){t.zone='';t.updatedAt=new Date().toISOString();}});
+    saveData(true);saveZones();
     if(currentZone===zoneId) switchZone('all');
+    closeConfirm();
     showToast('已删除分区');
-  } else if(action.trim()){
-    zone.name = action.trim();
-    saveZones();
-    showToast('已重命名');
   }
 }
 
-// 按分区筛选
+// 按分区筛选（同时过滤已删除的）
 function filterByZone(items){
-  if(currentZone === 'all') return items;
-  return items.filter(t=>t.zone===currentZone);
+  let filtered = items.filter(t=>!t.deleted);
+  if(currentZone === 'all') return filtered;
+  return filtered.filter(t=>t.zone===currentZone);
 }
 
 //===== 进展记录 =====
@@ -1082,6 +1176,7 @@ function addProgress(id){
   if(!item) return;
   if(!item.progress) item.progress = [];
   item.progress.push({time: new Date().toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}), text});
+  item.updatedAt = new Date().toISOString();
   input.value = '';
   saveData();render();
   showToast('已记录进展');
@@ -1103,6 +1198,7 @@ function renderProgress(item){
 function toggleDone(id){
   const item = todos.find(t=>t.id===id);
   if(!item) return;
+  item.updatedAt = new Date().toISOString();
   if(item.status==='done'){
     item.status='active';
     saveData();render();
@@ -1120,26 +1216,30 @@ function toggleDone(id){
   }
 }
 
-function deleteItem(id){todos=todos.filter(t=>t.id!==id);saveData();render();}
+function deleteItem(id){
+  const item = todos.find(t=>t.id===id);
+  if(item){item.deleted=true;item.updatedAt=new Date().toISOString();}
+  saveData();render();
+}
 
 function setToday(id){
   const item=todos.find(t=>t.id===id);
   if(!item) return;
-  item.dueDate=getToday();item.status='active';
+  item.dueDate=getToday();item.status='active';item.updatedAt=new Date().toISOString();
   saveData();render();showToast('已设为今天');
 }
 
 function setAnytime(id){
   const item=todos.find(t=>t.id===id);
   if(!item) return;
-  item.status='anytime';
+  item.status='anytime';item.updatedAt=new Date().toISOString();
   saveData();render();showToast('已标记为随时可做');
 }
 
 function togglePin(id){
   const item=todos.find(t=>t.id===id);
   if(!item) return;
-  item.pinned = !item.pinned;
+  item.pinned = !item.pinned;item.updatedAt=new Date().toISOString();
   saveData();render();
   showToast(item.pinned?'已置顶':'已取消置顶');
 }
@@ -1156,7 +1256,7 @@ function renderAnytime(){
       <div class="item-content">
         <div class="item-title">${esc(item.title)}</div>
         <div class="item-meta">
-          ${item.zone?`<span style="color:var(--text-tertiary)">${getZoneName(item.zone)}</span>`:''}
+          ${item.zone?`<span style="color:${getZoneColor(item.zone)};font-weight:500">${getZoneName(item.zone)}</span>`:''}
         </div>
       </div>
       <div class="item-actions">
@@ -1192,6 +1292,7 @@ function saveEdit(){
   item.dueDate=document.getElementById('editDate').value;
   item.priority=document.getElementById('editPriority').value;
   item.zone=document.getElementById('editZone').value;
+  item.updatedAt=new Date().toISOString();
   if(item.status==='inbox'&&(item.dueDate||item.priority))item.status='active';
   saveData();render();closeModal();showToast('已保存');
 }
@@ -1239,7 +1340,7 @@ function renderToday(){
           ${isOverdue?`<span class="overdue-tag">逾期${days}天</span>`:''}
           ${isToday?'<span style="color:var(--primary);font-size:11px">今天</span>':''}
           ${!isOverdue&&!isToday?`<span style="color:var(--warning);font-size:11px">${fmtDate(item.dueDate)}</span>`:''}
-          ${item.zone?`<span style="color:var(--gray-400);font-size:11px">${getZoneName(item.zone)}</span>`:''}
+          ${item.zone?`<span style="color:${getZoneColor(item.zone)};font-weight:500">${getZoneName(item.zone)}</span>`:''}
         </div>
         ${item.progress&&item.progress.length?`<button class="item-expand-btn" onclick="toggleExpand('${item.id}')">${expandedId===item.id?'收起':'进展('+item.progress.length+')'}</button>`:`<button class="item-expand-btn" onclick="toggleExpand('${item.id}')">${expandedId===item.id?'收起':'+ 进展'}</button>`}
         ${renderProgress(item)}
@@ -1298,7 +1399,7 @@ function renderTodoList(){
           ${item.status==='done'&&item.doneAt?`<span>完成于 ${fmtDate(item.doneAt)}</span>`:''}
           ${item.status!=='done'&&item.dueDate?`<span>${fmtDate(item.dueDate)}</span>`:''}
           ${item.status==='inbox'?'<span style="color:var(--warning)">待整理</span>':''}
-          ${item.zone?`<span style="color:var(--text-tertiary)">${getZoneName(item.zone)}</span>`:''}
+          ${item.zone?`<span style="color:${getZoneColor(item.zone)};font-weight:500">${getZoneName(item.zone)}</span>`:''}
           ${item.status==='done'&&item.dueDate?`<span style="color:var(--text-tertiary)">截止 ${fmtDate(item.dueDate)}</span>`:''}
           ${item.status==='done'&&item.progress&&item.progress.length?`<span style="color:var(--text-tertiary)">${item.progress.length}条进展</span>`:''}
         </div>
@@ -1316,9 +1417,10 @@ function renderTodoList(){
 }
 
 function updateBadges(){
-  const ic=todos.filter(t=>t.status==='inbox').length;
-  const ac=todos.filter(t=>t.status==='active').length;
-  const dc=todos.filter(t=>t.status==='done').length;
+  const active = todos.filter(t=>!t.deleted);
+  const ic=active.filter(t=>t.status==='inbox').length;
+  const ac=active.filter(t=>t.status==='active').length;
+  const dc=active.filter(t=>t.status==='done').length;
   document.getElementById('tabInboxCount').textContent=ic?`(${ic})`:'';
   document.getElementById('tabActiveCount').textContent=ac?`(${ac})`:'';
   document.getElementById('tabDoneCount').textContent=dc?`(${dc})`:'';
@@ -1389,6 +1491,7 @@ function isWithin3Days(d,today){const diff=(new Date(d)-new Date(today))/8640000
 function fmtDate(d){if(!d)return'';const dt=new Date(d);return `${dt.getMonth()+1}月${dt.getDate()}日`;}
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function getZoneName(zoneId){const z=zones.find(x=>x.id===zoneId);return z?z.name:'';}
+function getZoneColor(zoneId){const z=zones.find(x=>x.id===zoneId);return z?(z.color||'#2563eb'):'';}
 function showToast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2500);}
 function showConfirm(title,msg,onOk){
   document.getElementById('confirmTitle').textContent=title;
@@ -1399,7 +1502,7 @@ function showConfirm(title,msg,onOk){
 function closeConfirm(){document.getElementById('confirmModal').classList.remove('show');}
 
 //===== 初始化 =====
-loadData();loadSyncConfig();renderZones();renderFlashZoneChips();render();
+loadData();loadSyncConfig();applyZoneTheme(currentZone);renderZones();renderFlashZoneChips();render();
 
 // 打开时自动拉取
 if(syncConfig&&syncConfig.token){setTimeout(()=>pullFromCloud(),800);}
