@@ -1212,16 +1212,11 @@ function renderToday(){
     // 置顶的永远在最前面
     if(a.pinned && !b.pinned) return -1;
     if(!a.pinned && b.pinned) return 1;
-    // 排序规则：有日期的在前，按日期升序（临近的在前）；同日期按优先级；无日期的在最后按优先级
+    // 排序规则：逾期的在前（按日期升序，逾期越久越靠前），同日期按优先级
     const pOrder={'P0':0,'P1':1,'P2':2,'':3};
-    const aHasDate = !!a.dueDate;
-    const bHasDate = !!b.dueDate;
-    if(aHasDate && !bHasDate) return -1;
-    if(!aHasDate && bHasDate) return 1;
-    if(aHasDate && bHasDate){
-      if(a.dueDate !== b.dueDate) return a.dueDate < b.dueDate ? -1 : 1;
-      return (pOrder[a.priority]||3) - (pOrder[b.priority]||3);
-    }
+    // 先按日期升序（逾期最久的排最前）
+    if(a.dueDate !== b.dueDate) return a.dueDate < b.dueDate ? -1 : 1;
+    // 同日期按优先级
     return (pOrder[a.priority]||3) - (pOrder[b.priority]||3);
   });
 
