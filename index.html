@@ -1255,10 +1255,32 @@ function renderToday(){
 
 function renderTodoList(){
   const container=document.getElementById('todoListContainer');
+  const today=getToday();
   let items;
   if(currentTab==='inbox')items=filterByZone(todos).filter(t=>t.status==='inbox');
-  else if(currentTab==='active')items=filterByZone(todos).filter(t=>t.status==='active');
-  else items=filterByZone(todos).filter(t=>t.status==='done').slice(0,30);
+  else if(currentTab==='active'){
+    items=filterByZone(todos).filter(t=>t.status==='active');
+    // 进行中按日期+优先级排序
+    const pOrder={'P0':0,'P1':1,'P2':2,'':3};
+    items.sort((a,b)=>{
+      if(a.pinned&&!b.pinned)return -1;
+      if(!a.pinned&&b.pinned)return 1;
+      const aHas=!!a.dueDate, bHas=!!b.dueDate;
+      if(aHas&&!bHas)return -1;
+      if(!aHas&&bHas)return 1;
+      if(aHas&&bHas){
+        if(a.dueDate!==b.dueDate)return a.dueDate<b.dueDate?-1:1;
+        return (pOrder[a.priority]||3)-(pOrder[b.priority]||3);
+      }
+      return (pOrder[a.priority]||3)-(pOrder[b.priority]||3);
+    });
+  }
+  else{
+    items=filterByZone(todos).filter(t=>t.status==='done');
+    // 已完成按完成时间倒序（最近完成的在前）
+    items.sort((a,b)=>(b.doneAt||b.createdAt||'').localeCompare(a.doneAt||a.createdAt||''));
+    items=items.slice(0,50);
+  }
 
   if(!items.length){
     const m={inbox:'收集箱空空如也，快速记录点什么吧',active:'没有进行中的待办',done:'还没有已完成的事项'};
@@ -1267,20 +1289,25 @@ function renderTodoList(){
   }
 
   container.innerHTML=items.map(item=>`
-    <div class="todo-item ${item.status==='done'?'completed':''}" draggable="true" data-id="${item.id}" ondragstart="dragStart(event)" ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="drop(event)" ondragend="dragEnd(event)">
+    <div class="todo-item ${item.status==='done'?'completed':''}" draggable="${item.status!=='done'}" data-id="${item.id}" ondragstart="dragStart(event)" ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="drop(event)" ondragend="dragEnd(event)">
       <div class="item-check ${item.status==='done'?'done':''}" onclick="toggleDone('${item.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
       <div class="item-content">
         <div class="item-title">${esc(item.title)}</div>
         <div class="item-meta">
           ${item.priority?`<span class="priority-tag priority-${item.priority.toLowerCase()}">${item.priority}</span>`:''}
-          ${item.dueDate?`<span>${fmtDate(item.dueDate)}</span>`:''}
+          ${item.status==='done'&&item.doneAt?`<span>完成于 ${fmtDate(item.doneAt)}</span>`:''}
+          ${item.status!=='done'&&item.dueDate?`<span>${fmtDate(item.dueDate)}</span>`:''}
           ${item.status==='inbox'?'<span style="color:var(--warning)">待整理</span>':''}
-          ${item.zone?`<span style="color:var(--gray-400)">${getZoneName(item.zone)}</span>`:''}
+          ${item.zone?`<span style="color:var(--text-tertiary)">${getZoneName(item.zone)}</span>`:''}
+          ${item.status==='done'&&item.dueDate?`<span style="color:var(--text-tertiary)">截止 ${fmtDate(item.dueDate)}</span>`:''}
+          ${item.status==='done'&&item.progress&&item.progress.length?`<span style="color:var(--text-tertiary)">${item.progress.length}条进展</span>`:''}
         </div>
         ${item.status!=='done'?`${item.progress&&item.progress.length?`<button class="item-expand-btn" onclick="toggleExpand('${item.id}')">${expandedId===item.id?'收起':'进展('+item.progress.length+')'}</button>`:`<button class="item-expand-btn" onclick="toggleExpand('${item.id}')">${expandedId===item.id?'收起':'+ 进展'}</button>`}${renderProgress(item)}`:''}
+        ${item.status==='done'&&item.progress&&item.progress.length?`<button class="item-expand-btn" onclick="toggleExpand('${item.id}')">${expandedId===item.id?'收起进展':'查看进展('+item.progress.length+')'}</button>${renderProgress(item)}`:''}
       </div>
       <div class="item-actions">
         ${item.status==='inbox'?`<button class="item-action-btn" onclick="setToday('${item.id}')" title="今天做"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button><button class="item-action-btn" onclick="setAnytime('${item.id}')" title="随时做"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></button>`:''}
+        ${item.status==='done'?`<button class="item-action-btn" onclick="toggleDone('${item.id}')" title="恢复"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button>`:''}
         <button class="item-action-btn" onclick="openEdit('${item.id}')" title="编辑"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
         <button class="item-action-btn" onclick="deleteItem('${item.id}')" title="删除"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
       </div>
