@@ -410,6 +410,12 @@ h2{font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:14px
       <span class="flash-zone-chip" onclick="selectFlashDate(2)">后天</span>
       <input type="date" class="flash-date-input" id="flashDateInput" onchange="selectFlashDateCustom(this.value)" title="选择日期">
     </div>
+    <div class="flash-zone-chips" id="flashPriorityChips">
+      <span class="flash-zone-chip active" onclick="selectFlashPriority('')">不设优先级</span>
+      <span class="flash-zone-chip" style="border-color:#ef4444;color:#ef4444" onclick="selectFlashPriority('P0')">P0 紧急</span>
+      <span class="flash-zone-chip" style="border-color:#f59e0b;color:#f59e0b" onclick="selectFlashPriority('P1')">P1 重要</span>
+      <span class="flash-zone-chip" style="border-color:#10b981;color:#10b981" onclick="selectFlashPriority('P2')">P2 一般</span>
+    </div>
     <div class="inbox-badge" id="inboxBadge" style="display:none">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/></svg>
       <span id="inboxCount">0</span> 条待整理
@@ -573,6 +579,7 @@ let zones = []; // [{id, name}]
 let currentZone = 'all'; // 'all' 或 zone id
 let flashZone = ''; // 速记区当前选中的分区，空=未分类
 let flashDate = ''; // 速记区当前选中的日期，空=不设日期
+let flashPriority = ''; // 速记区当前选中的优先级
 let currentTab = 'inbox';
 let editingId = null;
 let expandedId = null; // 当前展开查看进展的条目
@@ -982,8 +989,9 @@ function addTodo(title){
   const now = new Date().toISOString();
   // 优先用手动选择的日期，否则智能识别
   const dueDate = flashDate || extractDate(title);
-  const status = dueDate ? 'active' : 'inbox';
-  todos.unshift({id:genId(),title:title.trim(),dueDate:dueDate,priority:'',status:status,zone:flashZone,progress:[],createdAt:getToday(),updatedAt:now,isSample:false});
+  const priority = flashPriority;
+  const status = (dueDate || priority) ? 'active' : 'inbox';
+  todos.unshift({id:genId(),title:title.trim(),dueDate:dueDate,priority:priority,status:status,zone:flashZone,progress:[],createdAt:getToday(),updatedAt:now,isSample:false});
   saveData();render();
   if(dueDate){showToast('已记录，日期: '+fmtDate(dueDate));}
   else{showToast('已记录');}
@@ -1082,6 +1090,23 @@ function renderFlashDateChips(){
     <span class="flash-zone-chip ${flashDate===day2?'active':''}" onclick="selectFlashDate(2)">后天</span>
     <input type="date" class="flash-date-input" id="flashDateInput" value="${flashDate&&flashDate!==today&&flashDate!==tmr&&flashDate!==day2?flashDate:''}" onchange="selectFlashDateCustom(this.value)" title="选择日期">
     ${flashDate&&flashDate!==today&&flashDate!==tmr&&flashDate!==day2?'<span class="flash-zone-chip active" style="font-size:11px">'+fmtDate(flashDate)+'</span>':''}
+  `;
+}
+
+// 速记区优先级选择
+function selectFlashPriority(p){
+  flashPriority = p;
+  renderFlashPriorityChips();
+}
+
+function renderFlashPriorityChips(){
+  const container = document.getElementById('flashPriorityChips');
+  const colors = {'P0':'#ef4444','P1':'#f59e0b','P2':'#10b981'};
+  container.innerHTML = `
+    <span class="flash-zone-chip ${flashPriority===''?'active':''}" onclick="selectFlashPriority('')">不设优先级</span>
+    <span class="flash-zone-chip ${flashPriority==='P0'?'active':''}" style="${flashPriority==='P0'?'background:#ef4444;color:#fff;border-color:transparent':'border-color:#ef4444;color:#ef4444'}" onclick="selectFlashPriority('P0')">P0 紧急</span>
+    <span class="flash-zone-chip ${flashPriority==='P1'?'active':''}" style="${flashPriority==='P1'?'background:#f59e0b;color:#fff;border-color:transparent':'border-color:#f59e0b;color:#f59e0b'}" onclick="selectFlashPriority('P1')">P1 重要</span>
+    <span class="flash-zone-chip ${flashPriority==='P2'?'active':''}" style="${flashPriority==='P2'?'background:#10b981;color:#fff;border-color:transparent':'border-color:#10b981;color:#10b981'}" onclick="selectFlashPriority('P2')">P2 一般</span>
   `;
 }
 
