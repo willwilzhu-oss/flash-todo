@@ -479,6 +479,10 @@ h2{font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:14px
       <input type="text" class="form-input" id="editTitle" placeholder="待办内容" style="font-size:16px">
     </div>
     <div class="form-group">
+      <label class="form-label">开始日期（可选，用于时间段任务）</label>
+      <input type="date" class="form-input" id="editStartDate" style="font-size:16px">
+    </div>
+    <div class="form-group">
       <label class="form-label">截止日期</label>
       <input type="date" class="form-input" id="editDate" style="font-size:16px">
       <div class="quick-dates" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
@@ -486,6 +490,24 @@ h2{font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:14px
         <button type="button" class="btn btn-sm" onclick="setQuickDate(1)">明天</button>
         <button type="button" class="btn btn-sm" onclick="setQuickDate(2)">后天</button>
         <button type="button" class="btn btn-sm" onclick="setQuickDate('nextMon')">下周一</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">按月循环</label>
+      <div style="display:flex;align-items:center;gap:10px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:14px;cursor:pointer">
+          <input type="checkbox" id="editRecurring" onchange="toggleRecurringUI()" style="width:18px;height:18px">
+          启用每月循环
+        </label>
+        <span id="recurringDesc" style="font-size:12px;color:var(--text-tertiary)"></span>
+      </div>
+      <div id="recurringOptions" style="display:none;margin-top:8px">
+        <div style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary)">
+          每月第
+          <input type="number" id="editRecurDay" min="1" max="28" value="1" style="width:60px;padding:6px 10px;border:0.5px solid var(--border-light);border-radius:8px;font-size:14px;text-align:center">
+          日
+        </div>
+        <p style="font-size:11px;color:var(--text-tertiary);margin-top:4px">系统会在每月自动生成该任务（最大28号，避免月末差异）</p>
       </div>
     </div>
     <div class="form-group">
@@ -931,6 +953,26 @@ function setQuickDate(offset){
   document.getElementById('editDate').value = d.toISOString().split('T')[0];
 }
 
+function toggleRecurringUI(){
+  const checked = document.getElementById('editRecurring').checked;
+  document.getElementById('recurringOptions').style.display = checked ? 'block' : 'none';
+  if(checked){
+    const dueDate = document.getElementById('editDate').value;
+    if(dueDate){
+      const day = new Date(dueDate).getDate();
+      document.getElementById('editRecurDay').value = Math.min(day, 28);
+    }
+    updateRecurringDesc();
+  } else {
+    document.getElementById('recurringDesc').textContent = '';
+  }
+}
+
+function updateRecurringDesc(){
+  const day = document.getElementById('editRecurDay').value;
+  document.getElementById('recurringDesc').textContent = day ? `每月${day}号` : '';
+}
+
 // 智能日期识别
 function extractDate(text){
   const today = new Date();
@@ -1318,8 +1360,15 @@ function openEdit(id){
   const item=todos.find(t=>t.id===id);if(!item)return;
   document.getElementById('modalTitle').textContent='编辑待办';
   document.getElementById('editTitle').value=item.title;
+  document.getElementById('editStartDate').value=item.startDate||'';
   document.getElementById('editDate').value=item.dueDate||'';
   document.getElementById('editPriority').value=item.priority||'';
+  // 循环设置
+  const hasRecurring = item.recurring && item.recurring.type==='monthly';
+  document.getElementById('editRecurring').checked = hasRecurring;
+  document.getElementById('recurringOptions').style.display = hasRecurring ? 'block' : 'none';
+  document.getElementById('editRecurDay').value = hasRecurring ? item.recurring.dayOfMonth : 1;
+  document.getElementById('recurringDesc').textContent = hasRecurring ? `每月${item.recurring.dayOfMonth}号` : '';
   // 填充分区选项
   const zoneSelect=document.getElementById('editZone');
   zoneSelect.innerHTML='<option value="">未分类</option>'+zones.map(z=>`<option value="${z.id}">${esc(z.name)}</option>`).join('');
@@ -1334,9 +1383,18 @@ function saveEdit(){
   const title=document.getElementById('editTitle').value.trim();
   if(!title){showToast('内容不能为空');return;}
   item.title=title;
+  item.startDate=document.getElementById('editStartDate').value||'';
   item.dueDate=document.getElementById('editDate').value;
   item.priority=document.getElementById('editPriority').value;
   item.zone=document.getElementById('editZone').value;
+  // 循环配置
+  const isRecurring = document.getElementById('editRecurring').checked;
+  if(isRecurring){
+    const day = parseInt(document.getElementById('editRecurDay').value)||1;
+    item.recurring = {type:'monthly', dayOfMonth: Math.min(Math.max(day,1),28)};
+  } else {
+    item.recurring = null;
+  }
   item.updatedAt=new Date().toISOString();
   if(item.status==='inbox'&&(item.dueDate||item.priority))item.status='active';
   saveData();render();closeModal();showToast('已保存');
@@ -1352,6 +1410,8 @@ function renderToday(){
     if(t.status==='done')return false;
     if(t.status==='anytime')return false;
     if(!t.dueDate)return false;
+    // 时间段任务：开始日期<=今天 且 截止日期>=今天（在范围内）
+    if(t.startDate && t.startDate<=today && t.dueDate>=today) return true;
     // 只显示今天到期 + 逾期的（不包含未来几天的）
     return t.dueDate<=today;
   }).sort((a,b)=>{
@@ -1385,6 +1445,8 @@ function renderToday(){
           ${isOverdue?`<span class="overdue-tag">逾期${days}天</span>`:''}
           ${isToday?'<span style="color:var(--primary);font-size:11px">今天</span>':''}
           ${!isOverdue&&!isToday?`<span style="color:var(--warning);font-size:11px">${fmtDate(item.dueDate)}</span>`:''}
+          ${item.startDate?`<span style="color:var(--text-tertiary);font-size:11px">${fmtDate(item.startDate)}~${fmtDate(item.dueDate)}</span>`:''}
+          ${(item.recurring||item.recurringParentId)?'<span style="color:var(--text-tertiary);font-size:11px">🔄 每月</span>':''}
           ${item.zone?`<span style="color:${getZoneColor(item.zone)};font-weight:500">${getZoneName(item.zone)}</span>`:''}
         </div>
         ${item.progress&&item.progress.length?`<button class="item-expand-btn" onclick="toggleExpand('${item.id}')">${expandedId===item.id?'收起':'进展('+item.progress.length+')'}</button>`:`<button class="item-expand-btn" onclick="toggleExpand('${item.id}')">${expandedId===item.id?'收起':'+ 进展'}</button>`}
@@ -1442,8 +1504,10 @@ function renderTodoList(){
         <div class="item-meta">
           ${item.priority?`<span class="priority-tag priority-${item.priority.toLowerCase()}">${item.priority}</span>`:''}
           ${item.status==='done'&&item.doneAt?`<span>完成于 ${fmtDate(item.doneAt)}</span>`:''}
-          ${item.status!=='done'&&item.dueDate?`<span>${fmtDate(item.dueDate)}</span>`:''}
+          ${item.status!=='done'&&item.startDate&&item.dueDate?`<span>${fmtDate(item.startDate)}~${fmtDate(item.dueDate)}</span>`:''}
+          ${item.status!=='done'&&!item.startDate&&item.dueDate?`<span>${fmtDate(item.dueDate)}</span>`:''}
           ${item.status==='inbox'?'<span style="color:var(--warning)">待整理</span>':''}
+          ${(item.recurring||item.recurringParentId)?'<span style="color:var(--text-tertiary)">🔄 每月</span>':''}
           ${item.zone?`<span style="color:${getZoneColor(item.zone)};font-weight:500">${getZoneName(item.zone)}</span>`:''}
           ${item.status==='done'&&item.dueDate?`<span style="color:var(--text-tertiary)">截止 ${fmtDate(item.dueDate)}</span>`:''}
           ${item.status==='done'&&item.progress&&item.progress.length?`<span style="color:var(--text-tertiary)">${item.progress.length}条进展</span>`:''}
@@ -1510,6 +1574,61 @@ function importData(e){
 function clearSampleData(){showConfirm('清空示例','删除示例数据？你的数据不受影响。',()=>{todos=todos.filter(t=>!t.isSample);saveData();render();showToast('已清空');});}
 function clearAllData(){showConfirm('清空所有','将删除全部待办，无法恢复！建议先导出。',()=>{todos=[];saveData();render();showToast('已清空');});}
 function checkBackupTip(){document.getElementById('backupTip').classList.toggle('show',todos.length>=30);}
+
+//===== 循环任务 =====
+function generateRecurringTasks(){
+  const today = new Date();
+  const thisMonth = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+  const nextMonth = today.getMonth()===11
+    ? `${today.getFullYear()+1}-01`
+    : `${today.getFullYear()}-${String(today.getMonth()+2).padStart(2,'0')}`;
+  let generated = false;
+
+  // 找所有有循环配置的任务（非删除、非子实例）
+  const recurringTasks = todos.filter(t=>!t.deleted && t.recurring && t.recurring.type==='monthly' && !t.recurringParentId);
+
+  recurringTasks.forEach(parent=>{
+    // 为本月和下月生成实例（如果还没有）
+    [thisMonth, nextMonth].forEach(ym=>{
+      const instanceDate = `${ym}-${String(parent.recurring.dayOfMonth).padStart(2,'0')}`;
+      // 检查是否已存在该月的实例
+      const exists = todos.some(t=>!t.deleted && t.recurringParentId===parent.id && t.dueDate && t.dueDate.startsWith(ym));
+      // 也不要为父任务自身所在月份重复创建
+      const parentMonth = parent.dueDate ? parent.dueDate.substring(0,7) : '';
+      if(!exists && ym !== parentMonth){
+        // 计算开始日期（如果父任务有startDate，按同样的偏移量算）
+        let startDate = '';
+        if(parent.startDate && parent.dueDate){
+          const diffDays = Math.round((new Date(parent.dueDate) - new Date(parent.startDate))/(86400000));
+          const sd = new Date(instanceDate);
+          sd.setDate(sd.getDate() - diffDays);
+          startDate = sd.toISOString().split('T')[0];
+        }
+        todos.push({
+          id: genId(),
+          title: parent.title,
+          startDate: startDate,
+          dueDate: instanceDate,
+          priority: parent.priority,
+          status: 'active',
+          zone: parent.zone,
+          progress: [],
+          pinned: false,
+          recurring: null,
+          recurringParentId: parent.id,
+          createdAt: getToday(),
+          updatedAt: new Date().toISOString(),
+          isSample: false
+        });
+        generated = true;
+      }
+    });
+  });
+
+  if(generated){
+    saveData(true);
+  }
+}
 
 //===== 月概览 =====
 let overviewYear = new Date().getFullYear();
@@ -1689,7 +1808,7 @@ function showConfirm(title,msg,onOk){
 function closeConfirm(){document.getElementById('confirmModal').classList.remove('show');}
 
 //===== 初始化 =====
-loadData();loadSyncConfig();applyZoneTheme(currentZone);renderZones();renderFlashZoneChips();render();
+loadData();loadSyncConfig();generateRecurringTasks();applyZoneTheme(currentZone);renderZones();renderFlashZoneChips();render();
 
 // 打开时自动拉取
 if(syncConfig&&syncConfig.token){setTimeout(()=>pullFromCloud(),800);}
