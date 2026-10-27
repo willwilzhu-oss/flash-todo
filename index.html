@@ -288,6 +288,41 @@ h2{font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:14px
 }
 .backup-tip.show{display:flex}
 
+/* 收集箱引导条 */
+.inbox-guide{
+  display:none;padding:12px 16px;border-radius:12px;margin-bottom:10px;
+  background:rgba(245,158,11,.06);border:0.5px solid rgba(245,158,11,.15);
+  font-size:13px;color:#d97706;align-items:center;gap:8px;
+}
+.inbox-guide.show{display:flex}
+.inbox-guide .guide-action{
+  margin-left:auto;padding:6px 14px;border-radius:8px;border:none;
+  background:#f59e0b;color:#fff;font-size:12px;font-weight:500;cursor:pointer;
+  white-space:nowrap;
+}
+
+/* 快速整理弹窗 */
+.triage-card{
+  text-align:center;padding:20px;
+}
+.triage-card .triage-title{
+  font-size:16px;font-weight:500;color:var(--text-primary);margin-bottom:6px;
+}
+.triage-card .triage-counter{
+  font-size:12px;color:var(--text-tertiary);margin-bottom:16px;
+}
+.triage-card .triage-actions{
+  display:flex;flex-wrap:wrap;gap:8px;justify-content:center;
+}
+.triage-card .triage-btn{
+  padding:10px 18px;border-radius:10px;border:0.5px solid var(--border-light);
+  background:var(--bg-card-solid);color:var(--text-secondary);font-size:13px;
+  cursor:pointer;font-weight:500;transition:all .2s;min-width:80px;
+}
+.triage-card .triage-btn:hover{border-color:var(--primary);color:var(--primary)}
+.triage-card .triage-btn.primary{background:var(--primary);color:#fff;border-color:transparent}
+.triage-card .triage-btn.danger{color:var(--danger);border-color:rgba(239,68,68,.2)}
+
 /* 欢迎语 */
 .welcome-bar{
   padding:14px 18px;border-radius:14px;margin-bottom:16px;
@@ -438,11 +473,11 @@ h2{font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:14px
     <div id="todayList" class="section-scroll"></div>
   </div>
 
-  <!-- 随时可做 -->
+  <!-- 随手清单 -->
   <div class="section" id="anytimeSection" style="display:none">
     <h2>
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-      随时可做
+      随手清单
     </h2>
     <div id="anytimeList" class="section-scroll"></div>
   </div>
@@ -453,6 +488,11 @@ h2{font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:14px
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
       待办整理
     </h2>
+    <div class="inbox-guide" id="inboxGuide">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/></svg>
+      <span class="guide-text">有待办还没安排</span>
+      <button class="guide-action" onclick="startTriage()">快速整理</button>
+    </div>
     <div class="tab-bar">
       <button class="tab-item active" data-tab="inbox" onclick="switchTab('inbox')">收集箱<span class="tab-count" id="tabInboxCount"></span></button>
       <button class="tab-item" data-tab="active" onclick="switchTab('active')">进行中<span class="tab-count" id="tabActiveCount"></span></button>
@@ -524,6 +564,10 @@ h2{font-size:15px;font-weight:500;color:var(--text-secondary);margin-bottom:14px
       <select class="form-select" id="editZone" style="font-size:16px">
         <option value="">未分类</option>
       </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">备注（可选）</label>
+      <textarea class="form-input" id="editNote" rows="3" placeholder="补充说明、链接、上下文..." style="font-size:14px;resize:vertical"></textarea>
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">取消</button>
@@ -643,8 +687,45 @@ function loadData(){
 
 function saveData(skipSync){
   localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
+  // 自动备份：保存最近5个版本
+  autoBackup();
   checkBackupTip();
   if(!skipSync) debouncedPush();
+}
+
+function autoBackup(){
+  try{
+    const backupKey = 'wb_flashtodo_backups';
+    let backups = JSON.parse(localStorage.getItem(backupKey)||'[]');
+    const now = new Date().toISOString();
+    // 最多保留5个版本，每5分钟最多保存一次
+    const lastTime = backups.length ? backups[backups.length-1].time : '';
+    if(lastTime && (new Date(now) - new Date(lastTime)) < 300000) return;
+    backups.push({time:now, data:JSON.stringify({items:todos,zones:zones})});
+    if(backups.length > 5) backups = backups.slice(-5);
+    localStorage.setItem(backupKey, JSON.stringify(backups));
+    localStorage.setItem('wb_flashtodo_last_active', now);
+  }catch(e){}
+}
+
+function detectDataLoss(){
+  const lastActive = localStorage.getItem('wb_flashtodo_last_active');
+  const currentData = localStorage.getItem(STORAGE_KEY);
+  if(lastActive && (!currentData || currentData === '[]')){
+    // 曾经有数据但现在为空，可能是数据丢失
+    const backupKey = 'wb_flashtodo_backups';
+    const backups = JSON.parse(localStorage.getItem(backupKey)||'[]');
+    if(backups.length > 0){
+      showConfirm('数据恢复','检测到数据可能丢失（上次使用: '+new Date(lastActive).toLocaleString('zh-CN')+'），发现 '+backups.length+' 个自动备份。是否从最近的备份恢复？',()=>{
+        try{
+          const latest = JSON.parse(backups[backups.length-1].data);
+          if(latest.items){todos=latest.items;saveData(true);render();}
+          if(latest.zones){zones=latest.zones;localStorage.setItem(ZONES_KEY,JSON.stringify(zones));renderZones();renderFlashZoneChips();}
+          showToast('已从备份恢复 '+todos.length+' 条待办');
+        }catch(e){showToast('恢复失败');}
+      });
+    }
+  }
 }
 
 function saveZones(){
@@ -936,6 +1017,82 @@ function clearSyncConfig(){
     closeSettings();
     showToast('已断开同步');
   });
+}
+
+//===== 收集箱快速整理 =====
+let triageQueue = [];
+let triageIndex = 0;
+
+function checkInboxGuide(){
+  const inboxCount = todos.filter(t=>!t.deleted && t.status==='inbox').length;
+  const guideEl = document.getElementById('inboxGuide');
+  if(guideEl){
+    if(inboxCount >= 3){
+      guideEl.classList.add('show');
+      guideEl.querySelector('.guide-text').textContent = '有 '+inboxCount+' 条待办还没安排，花1分钟整理一下？';
+    } else {
+      guideEl.classList.remove('show');
+    }
+  }
+}
+
+function startTriage(){
+  triageQueue = todos.filter(t=>!t.deleted && t.status==='inbox');
+  if(!triageQueue.length){showToast('收集箱已经空了');return;}
+  triageIndex = 0;
+  renderTriageCard();
+  document.getElementById('confirmModal').classList.add('show');
+}
+
+function renderTriageCard(){
+  if(triageIndex >= triageQueue.length){
+    // 全部整理完毕
+    document.getElementById('confirmTitle').textContent = '整理完成';
+    document.getElementById('confirmMsg').innerHTML = '<div class="triage-card"><div style="font-size:32px;margin-bottom:12px">&#10024;</div><div class="triage-title">太棒了！收集箱已清空</div><div class="triage-counter">共整理了 '+triageQueue.length+' 条待办</div></div>';
+    document.getElementById('confirmOk').textContent = '好的';
+    document.getElementById('confirmOk').onclick = ()=>{closeConfirm();render();};
+    return;
+  }
+  const item = triageQueue[triageIndex];
+  const remaining = triageQueue.length - triageIndex;
+  document.getElementById('confirmTitle').textContent = '快速整理（还剩 '+remaining+' 条）';
+  document.getElementById('confirmMsg').innerHTML = `<div class="triage-card">
+    <div class="triage-title">${esc(item.title)}</div>
+    <div class="triage-counter">${item.zone?getZoneName(item.zone)+'  ·  ':''}第 ${triageIndex+1}/${triageQueue.length} 条</div>
+    <div class="triage-actions">
+      <button class="triage-btn primary" onclick="triageAction('today')">今天做</button>
+      <button class="triage-btn" onclick="triageAction('tomorrow')">明天做</button>
+      <button class="triage-btn" onclick="triageAction('pick')">选日期</button>
+      <button class="triage-btn" onclick="triageAction('anytime')">随手清单</button>
+      <button class="triage-btn" onclick="triageAction('skip')">跳过</button>
+      <button class="triage-btn danger" onclick="triageAction('delete')">删除</button>
+    </div>
+  </div>`;
+  document.getElementById('confirmOk').style.display = 'none';
+}
+
+function triageAction(action){
+  const item = triageQueue[triageIndex];
+  if(!item) return;
+  const now = new Date().toISOString();
+  switch(action){
+    case 'today':
+      item.dueDate = getToday(); item.status = 'active'; item.updatedAt = now; break;
+    case 'tomorrow':
+      item.dueDate = new Date(Date.now()+86400000).toISOString().split('T')[0]; item.status = 'active'; item.updatedAt = now; break;
+    case 'pick':
+      const d = prompt('输入日期（格式：YYYY-MM-DD）：');
+      if(d && /^\d{4}-\d{2}-\d{2}$/.test(d)){item.dueDate = d; item.status = 'active'; item.updatedAt = now;}
+      else{showToast('日期格式不对，跳过');} break;
+    case 'anytime':
+      item.status = 'anytime'; item.updatedAt = now; break;
+    case 'delete':
+      item.deleted = true; item.updatedAt = now; break;
+    case 'skip': break;
+  }
+  saveData(true);
+  triageIndex++;
+  renderTriageCard();
 }
 
 //===== 核心操作 =====
@@ -1320,7 +1477,7 @@ function setAnytime(id){
   const item=todos.find(t=>t.id===id);
   if(!item) return;
   item.status='anytime';item.updatedAt=new Date().toISOString();
-  saveData();render();showToast('已标记为随时可做');
+  saveData();render();showToast('已加入随手清单');
 }
 
 function togglePin(id){
@@ -1335,7 +1492,9 @@ function renderAnytime(){
   const section = document.getElementById('anytimeSection');
   const container = document.getElementById('anytimeList');
   const items = filterByZone(todos).filter(t=>t.status==='anytime');
-  if(!items.length){section.style.display='none';return;}
+  if(!items.length){
+    section.style.display='none';return;
+  }
   section.style.display='block';
   container.innerHTML = items.map(item=>`
     <div class="todo-item" draggable="true" data-id="${item.id}" ondragstart="dragStart(event)" ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="drop(event)" ondragend="dragEnd(event)">
@@ -1373,6 +1532,7 @@ function openEdit(id){
   const zoneSelect=document.getElementById('editZone');
   zoneSelect.innerHTML='<option value="">未分类</option>'+zones.map(z=>`<option value="${z.id}">${esc(z.name)}</option>`).join('');
   zoneSelect.value=item.zone||'';
+  document.getElementById('editNote').value=item.note||'';
   document.getElementById('editModal').classList.add('show');
 }
 function closeModal(){document.getElementById('editModal').classList.remove('show');editingId=null;}
@@ -1387,6 +1547,7 @@ function saveEdit(){
   item.dueDate=document.getElementById('editDate').value;
   item.priority=document.getElementById('editPriority').value;
   item.zone=document.getElementById('editZone').value;
+  item.note=document.getElementById('editNote').value.trim();
   // 循环配置
   const isRecurring = document.getElementById('editRecurring').checked;
   if(isRecurring){
@@ -1401,7 +1562,7 @@ function saveEdit(){
 }
 
 //===== 渲染 =====
-function render(){renderWelcome();renderToday();renderAnytime();renderTodoList();updateBadges();renderDailyStats();}
+function render(){renderWelcome();renderToday();renderAnytime();renderTodoList();updateBadges();renderDailyStats();checkInboxGuide();}
 
 function renderToday(){
   const container=document.getElementById('todayList');
@@ -1448,7 +1609,9 @@ function renderToday(){
           ${item.startDate?`<span style="color:var(--text-tertiary);font-size:11px">${fmtDate(item.startDate)}~${fmtDate(item.dueDate)}</span>`:''}
           ${(item.recurring||item.recurringParentId)?'<span style="color:var(--text-tertiary);font-size:11px">🔄 每月</span>':''}
           ${item.zone?`<span style="color:${getZoneColor(item.zone)};font-weight:500">${getZoneName(item.zone)}</span>`:''}
+          ${item.note?'<span style="color:var(--text-tertiary)">&#128196;</span>':''}
         </div>
+        ${item.note&&expandedId===item.id?`<div style="font-size:12px;color:var(--text-secondary);margin-top:6px;padding:8px 10px;background:rgba(0,0,0,.02);border-radius:8px;white-space:pre-wrap">${esc(item.note)}</div>`:''}
         ${item.progress&&item.progress.length?`<button class="item-expand-btn" onclick="toggleExpand('${item.id}')">${expandedId===item.id?'收起':'进展('+item.progress.length+')'}</button>`:`<button class="item-expand-btn" onclick="toggleExpand('${item.id}')">${expandedId===item.id?'收起':'+ 进展'}</button>`}
         ${renderProgress(item)}
       </div>
@@ -1511,12 +1674,14 @@ function renderTodoList(){
           ${item.zone?`<span style="color:${getZoneColor(item.zone)};font-weight:500">${getZoneName(item.zone)}</span>`:''}
           ${item.status==='done'&&item.dueDate?`<span style="color:var(--text-tertiary)">截止 ${fmtDate(item.dueDate)}</span>`:''}
           ${item.status==='done'&&item.progress&&item.progress.length?`<span style="color:var(--text-tertiary)">${item.progress.length}条进展</span>`:''}
+          ${item.note?'<span style="color:var(--text-tertiary)">&#128196;</span>':''}
         </div>
+        ${item.note&&expandedId===item.id?`<div style="font-size:12px;color:var(--text-secondary);margin-top:6px;padding:8px 10px;background:rgba(0,0,0,.02);border-radius:8px;white-space:pre-wrap">${esc(item.note)}</div>`:''}
         ${item.status!=='done'?`${item.progress&&item.progress.length?`<button class="item-expand-btn" onclick="toggleExpand('${item.id}')">${expandedId===item.id?'收起':'进展('+item.progress.length+')'}</button>`:`<button class="item-expand-btn" onclick="toggleExpand('${item.id}')">${expandedId===item.id?'收起':'+ 进展'}</button>`}${renderProgress(item)}`:''}
         ${item.status==='done'&&item.progress&&item.progress.length?`<button class="item-expand-btn" onclick="toggleExpand('${item.id}')">${expandedId===item.id?'收起进展':'查看进展('+item.progress.length+')'}</button>${renderProgress(item)}`:''}
       </div>
       <div class="item-actions">
-        ${item.status==='inbox'?`<button class="item-action-btn" onclick="setToday('${item.id}')" title="今天做"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button><button class="item-action-btn" onclick="setAnytime('${item.id}')" title="随时做"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></button>`:''}
+        ${item.status==='inbox'?`<button class="item-action-btn" onclick="setToday('${item.id}')" title="今天做"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button><button class="item-action-btn" onclick="setAnytime('${item.id}')" title="随手清单"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></button>`:''}
         ${item.status==='done'?`<button class="item-action-btn" onclick="toggleDone('${item.id}')" title="恢复"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button>`:''}
         <button class="item-action-btn" onclick="openEdit('${item.id}')" title="编辑"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
         <button class="item-action-btn" onclick="deleteItem('${item.id}')" title="删除"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
@@ -1560,20 +1725,46 @@ function toggleVoice(){
 
 //===== 导入导出 =====
 function exportData(){
-  const blob=new Blob([JSON.stringify({version:1,exportedAt:new Date().toISOString(),items:todos},null,2)],{type:'application/json'});
+  const data = {
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    items: todos,
+    zones: zones,
+    syncConfig: syncConfig ? {gistId: syncConfig.gistId} : null
+  };
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
   a.download=`闪念待办台_备份_${getToday()}.json`;a.click();
-  showToast('备份已导出');
+  localStorage.setItem('wb_flashtodo_last_export', new Date().toISOString());
+  showToast('备份已导出（含 '+todos.filter(t=>!t.deleted).length+' 条待办 + '+zones.length+' 个分区）');
 }
 function importData(e){
   const file=e.target.files[0];if(!file)return;
   const r=new FileReader();
-  r.onload=(ev)=>{try{const d=JSON.parse(ev.target.result);if(d.items&&Array.isArray(d.items)){todos=d.items;saveData();render();showToast(`已导入${todos.length}条`);}else showToast('格式不对');}catch(err){showToast('导入失败');}};
+  r.onload=(ev)=>{
+    try{
+      const d=JSON.parse(ev.target.result);
+      if(d.items&&Array.isArray(d.items)){
+        const count = d.items.filter(t=>!t.deleted).length;
+        showConfirm('导入数据','将导入 '+count+' 条待办'+(d.zones?' 和 '+d.zones.length+' 个分区':'')+'\n当前数据将被覆盖，是否继续？',()=>{
+          todos=d.items;
+          if(d.zones&&Array.isArray(d.zones)){zones=d.zones;localStorage.setItem(ZONES_KEY,JSON.stringify(zones));renderZones();renderFlashZoneChips();}
+          saveData();render();showToast('已导入 '+count+' 条待办');
+        });
+      }else showToast('格式不对');
+    }catch(err){showToast('导入失败');}
+  };
   r.readAsText(file);e.target.value='';
 }
 function clearSampleData(){showConfirm('清空示例','删除示例数据？你的数据不受影响。',()=>{todos=todos.filter(t=>!t.isSample);saveData();render();showToast('已清空');});}
 function clearAllData(){showConfirm('清空所有','将删除全部待办，无法恢复！建议先导出。',()=>{todos=[];saveData();render();showToast('已清空');});}
-function checkBackupTip(){document.getElementById('backupTip').classList.toggle('show',todos.length>=30);}
+function checkBackupTip(){
+  const lastExport = localStorage.getItem('wb_flashtodo_last_export');
+  const daysSinceExport = lastExport ? Math.floor((Date.now() - new Date(lastExport))/(86400000)) : 999;
+  const activeCount = todos.filter(t=>!t.deleted).length;
+  // 超过7天未导出且有数据时提醒
+  document.getElementById('backupTip').classList.toggle('show', activeCount>=10 && daysSinceExport>=7);
+}
 
 //===== 循环任务 =====
 function generateRecurringTasks(){
@@ -1805,10 +1996,10 @@ function showConfirm(title,msg,onOk){
   document.getElementById('confirmOk').onclick=()=>{onOk();closeConfirm();};
   document.getElementById('confirmModal').classList.add('show');
 }
-function closeConfirm(){document.getElementById('confirmModal').classList.remove('show');}
+function closeConfirm(){document.getElementById('confirmModal').classList.remove('show');document.getElementById('confirmOk').style.display='';document.getElementById('confirmOk').textContent='确认';}
 
 //===== 初始化 =====
-loadData();loadSyncConfig();generateRecurringTasks();applyZoneTheme(currentZone);renderZones();renderFlashZoneChips();render();
+loadData();loadSyncConfig();detectDataLoss();generateRecurringTasks();applyZoneTheme(currentZone);renderZones();renderFlashZoneChips();render();
 
 // 打开时自动拉取
 if(syncConfig&&syncConfig.token){setTimeout(()=>pullFromCloud(),800);}
